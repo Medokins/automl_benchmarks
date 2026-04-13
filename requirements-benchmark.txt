@@ -1,0 +1,6 @@
+# Orchestrator: submit KFP / OpenShift Data Science Pipelines runs and aggregate results
+kfp>=2.8.0,<3
+PyYAML>=6.0
+pandas>=2.0
+# Optional: load the same YAML from a mounted OpenShift/Kubernetes ConfigMap
+kubernetes>=28.0.0

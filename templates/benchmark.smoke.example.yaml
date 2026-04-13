@@ -1,0 +1,13 @@
+# Smoke test layout (non-secret). Set kfp / storage / pipeline secret name in credentials.ini only.
+
+pipeline:
+  package_path: "../pipelines/pipeline.yaml"
+
+run:
+  top_n: 2
+  poll_interval_seconds: 15
+  timeout_seconds: 7200
+  enable_caching: false
+  run_name_prefix: "smoke"
+
+dataset_manifest_path: "dataset_manifest.smoke.yaml"
