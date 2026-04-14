@@ -1,18 +1,6 @@
 # AutoML benchmarks (KFP orchestrator)
 
-This repository helps you run an AutoML tabular training **Kubeflow Pipelines** (KFP) workflow across many datasets, poll runs to completion, and write a single **CSV** of results. Configuration splits **non-secret layout** (YAML) from **cluster and storage identity** (INI).
-
-## Setup
-
-From the repository root:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements-benchmark.txt
-```
-
-Run scripts from the repo root so paths such as `config/benchmark.yaml` resolve correctly.
+This repository helps to run an AutoML tabular training **Kubeflow Pipelines** (KFP) workflow across many datasets, poll runs to completion, and write a single **CSV** of results. Configuration splits **non-secret layout** (YAML) from **cluster and storage identity** (INI).
 
 ## Before running experiments
 

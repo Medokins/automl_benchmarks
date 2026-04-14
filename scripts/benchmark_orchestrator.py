@@ -7,7 +7,7 @@ Implementation lives in the ``automl_benchmark`` package; this file is a thin CL
 
 Configuration:
   - YAML ($BENCHMARK_CONFIG_PATH / config/benchmark.yaml): pipeline.package_path (default
-    ``../pipelines/pipeline.yaml`` when this file is under ``config/``), run tuning, manifest only.
+    ``../pipelines/autogluon-tabular-training-pipeline.yaml`` when this file is under ``config/``), run tuning, manifest only.
   - credentials.ini (required): kfp host/namespace/token, bucket, pipeline secret name, [s3] for your records.
     Use config/credentials.ini, $BENCHMARK_CREDENTIALS_PATH, or ``--credentials PATH``.
 

@@ -1,7 +1,7 @@
 # Smoke test layout (non-secret). Set kfp / storage / pipeline secret name in credentials.ini only.
 
 pipeline:
-  package_path: "../pipelines/pipeline.yaml"
+  package_path: "../pipelines/autogluon-tabular-training-pipeline.yaml"
 
 run:
   top_n: 2

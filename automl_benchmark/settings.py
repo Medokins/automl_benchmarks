@@ -29,7 +29,7 @@ def benchmark_settings_from_config(cfg: dict[str, Any], config_dir: Path) -> Ben
     run_cfg = cfg.get("run") or {}
     kfp_cfg = cfg.get("kfp") or {}
 
-    pipeline_yaml = resolve_under(config_dir, str(pipeline_cfg.get("package_path", "../pipelines/pipeline.yaml")))
+    pipeline_yaml = resolve_under(config_dir, str(pipeline_cfg.get("package_path", "../pipelines/autogluon-tabular-training-pipeline.yaml")))
     secret = pipeline_cfg.get("train_data_secret_name")
     bucket = storage_cfg.get("train_data_bucket_name")
     if not secret or not bucket:

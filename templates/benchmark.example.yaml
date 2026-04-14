@@ -6,7 +6,7 @@
 
 pipeline:
   # Compiled IR YAML (paths are relative to this file's directory; repo root is one level up)
-  package_path: "../pipelines/pipeline.yaml"
+  package_path: "../pipelines/autogluon-tabular-training-pipeline.yaml"
 
 run:
   top_n: 3
