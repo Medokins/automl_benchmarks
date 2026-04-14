@@ -48,6 +48,16 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Stop on first pipeline failure",
     )
+    parser.add_argument(
+        "--dataset-filter",
+        choices=("all", "tabular", "timeseries"),
+        default="all",
+        metavar="MODE",
+        help=(
+            "Run only tabular (binary/multiclass/regression) or only time series "
+            "(task_type=timeseries) manifest rows"
+        ),
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -65,7 +75,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     orch = BenchmarkOrchestrator(cfg_path, credentials_ini_path=args.credentials)
-    return orch.execute(output_csv=args.output, dry_run=args.dry_run, fail_fast=args.fail_fast)
+    return orch.execute(
+        output_csv=args.output,
+        dry_run=args.dry_run,
+        fail_fast=args.fail_fast,
+        dataset_filter=args.dataset_filter,
+    )
 
 
 if __name__ == "__main__":

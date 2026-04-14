@@ -7,6 +7,8 @@
 pipeline:
   # Compiled IR YAML (paths are relative to this file's directory; repo root is one level up)
   package_path: "../pipelines/autogluon-tabular-training-pipeline.yaml"
+  # Used for manifest rows with task_type: timeseries
+  timeseries_package_path: "../pipelines/autogluon-timeseries-training-pipeline.yaml"
 
 run:
   top_n: 3

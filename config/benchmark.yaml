@@ -1,5 +1,6 @@
 pipeline:
   package_path: "../pipelines/autogluon-tabular-training-pipeline.yaml"
+  timeseries_package_path: "../pipelines/autogluon-timeseries-training-pipeline.yaml"
 
 run:
   top_n: 3
@@ -68,3 +69,11 @@ datasets:
     train_data_file_key: "datasets/regression/houses.csv"
     label_column: "median_house_value"
     task_type: "regression"
+
+  - id: monthly-sunspots
+    name: monthly-sunspots
+    train_data_file_key: "datasets/timeseries/monthly-sunspots.csv"
+    task_type: "timeseries"
+    id_column: "series_id"
+    timestamp_column: "Month"
+    target: "Sunspots"

@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
 """
-Submit autogluon-tabular-training-pipeline runs (KFP / OpenShift Data Science Pipelines)
-for each dataset in a manifest, wait for completion, and write a single CSV summary.
+Submit AutoGluon KFP pipeline runs (tabular and/or time series) for each dataset in a
+manifest, wait for completion, and write a single CSV summary.
 
 Implementation lives in the ``automl_benchmark`` package; this file is a thin CLI wrapper.
 
 Configuration:
-  - YAML ($BENCHMARK_CONFIG_PATH / config/benchmark.yaml): pipeline.package_path (default
-    ``../pipelines/autogluon-tabular-training-pipeline.yaml`` when this file is under ``config/``), run tuning, manifest only.
+  - YAML ($BENCHMARK_CONFIG_PATH / config/benchmark.yaml): ``pipeline.package_path`` (tabular IR),
+    ``pipeline.timeseries_package_path`` (``task_type: timeseries`` rows), run tuning, manifest.
   - credentials.ini (required): kfp host/namespace/token, bucket, pipeline secret name, [s3] for your records.
     Use config/credentials.ini, $BENCHMARK_CREDENTIALS_PATH, or ``--credentials PATH``.
 
 Usage:
   pip install -r requirements-benchmark.txt
-  cp config/benchmark.example.yaml config/benchmark.yaml
-  cp config/credentials.example.ini config/credentials.ini   # all cluster + storage identity here
+  cp templates/benchmark.example.yaml config/benchmark.yaml
+  cp templates/credentials.example.ini config/credentials.ini   # all cluster + storage identity here
   python scripts/benchmark_orchestrator.py --output results/benchmark_runs.csv
 """
 

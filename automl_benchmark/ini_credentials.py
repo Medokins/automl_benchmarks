@@ -50,7 +50,7 @@ def load_credentials_ini(path: Path) -> dict[str, Any]:
     if "pipeline" in by_section:
         pl: dict[str, Any] = {}
         raw = by_section["pipeline"]
-        for key in ("train_data_secret_name", "package_path"):
+        for key in ("train_data_secret_name", "package_path", "timeseries_package_path"):
             if raw.get(key):
                 pl[key] = raw[key]
         if pl:

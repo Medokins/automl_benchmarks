@@ -9,7 +9,11 @@ from typing import Any
 from automl_benchmark.config_loader import load_merged_benchmark_config
 from automl_benchmark.kfp_client import create_kfp_client
 from automl_benchmark.manifest import load_dataset_entries
-from automl_benchmark.pipeline_params import build_pipeline_arguments
+from automl_benchmark.pipeline_params import (
+    build_pipeline_arguments,
+    is_timeseries_dataset,
+    pipeline_file_for_dataset,
+)
 from automl_benchmark.pipeline_run import extract_run_id, submit_pipeline_package, wait_for_terminal_run
 from automl_benchmark.result_rows import (
     base_row_for_dataset,
@@ -24,6 +28,33 @@ from automl_benchmark.run_state import is_success_state
 from automl_benchmark.settings import benchmark_settings_from_config, BenchmarkSettings
 
 logger = logging.getLogger(__name__)
+
+
+def _dataset_matches_filter(ds: dict[str, Any], dataset_filter: str) -> bool:
+    if dataset_filter == "all":
+        return True
+    ts = is_timeseries_dataset(ds)
+    if dataset_filter == "tabular":
+        return not ts
+    if dataset_filter == "timeseries":
+        return ts
+    return True
+
+
+def _validate_dataset_entry(ds: dict[str, Any], ds_id: str) -> str | None:
+    if not ds.get("train_data_file_key"):
+        return f"Dataset {ds_id} missing train_data_file_key"
+    if is_timeseries_dataset(ds):
+        if not ds.get("id_column") or not ds.get("timestamp_column"):
+            return (
+                f"Dataset {ds_id} (task_type=timeseries) requires id_column and timestamp_column"
+            )
+        if not (ds.get("target") or ds.get("label_column")):
+            return f"Dataset {ds_id} (task_type=timeseries) requires target or label_column"
+        return None
+    if not ds.get("label_column") or not ds.get("task_type"):
+        return f"Dataset {ds_id} missing label_column or task_type"
+    return None
 
 
 class BenchmarkOrchestrator:
@@ -45,6 +76,7 @@ class BenchmarkOrchestrator:
         output_csv: Path,
         dry_run: bool = False,
         fail_fast: bool = False,
+        dataset_filter: str = "all",
     ) -> int:
         try:
             cfg, settings, datasets = self.load_config_and_datasets()
@@ -52,8 +84,20 @@ class BenchmarkOrchestrator:
             logger.error("%s", e)
             return 1
 
-        if not settings.pipeline_yaml.is_file():
-            logger.error("Pipeline package not found: %s", settings.pipeline_yaml)
+        needs_tabular = False
+        needs_ts = False
+        for ds in datasets:
+            if not _dataset_matches_filter(ds, dataset_filter):
+                continue
+            if is_timeseries_dataset(ds):
+                needs_ts = True
+            else:
+                needs_tabular = True
+        if needs_tabular and not settings.pipeline_yaml.is_file():
+            logger.error("Tabular pipeline package not found: %s", settings.pipeline_yaml)
+            return 1
+        if needs_ts and not settings.timeseries_pipeline_yaml.is_file():
+            logger.error("Time series pipeline package not found: %s", settings.timeseries_pipeline_yaml)
             return 1
 
         rows: list[dict[str, Any]] = []
@@ -67,29 +111,39 @@ class BenchmarkOrchestrator:
 
         for i, ds in enumerate(datasets):
             ds_id = str(ds.get("id", ds.get("name", f"dataset_{i}")))
-            file_key = ds.get("train_data_file_key")
-            label_column = ds.get("label_column")
-            task_type = ds.get("task_type")
-            if not file_key or not label_column or not task_type:
-                logger.error("Dataset %s missing train_data_file_key, label_column, or task_type", ds_id)
+            if not _dataset_matches_filter(ds, dataset_filter):
+                logger.info("Skipping dataset %s (dataset_filter=%s)", ds_id, dataset_filter)
+                continue
+
+            err = _validate_dataset_entry(ds, ds_id)
+            if err:
+                logger.error("%s", err)
                 if fail_fast:
                     return 1
                 continue
 
-            arguments = build_pipeline_arguments(ds, settings)
+            try:
+                arguments = build_pipeline_arguments(ds, settings)
+            except ValueError as e:
+                logger.error("Dataset %s: %s", ds_id, e)
+                if fail_fast:
+                    return 1
+                continue
+
+            pipeline_file = pipeline_file_for_dataset(ds, settings)
             run_name = run_name_for_dataset(settings.run_name_prefix, ds_id)
             base = base_row_for_dataset(ds, i, run_name, settings.top_n)
 
             if dry_run:
                 rows.append(dry_run_row(base, arguments))
-                logger.info("DRY_RUN %s -> %s", ds_id, arguments)
+                logger.info("DRY_RUN %s pipeline=%s -> %s", ds_id, pipeline_file.name, arguments)
                 continue
 
             assert client is not None
             try:
                 run_result = submit_pipeline_package(
                     client,
-                    pipeline_file=str(settings.pipeline_yaml),
+                    pipeline_file=str(pipeline_file),
                     arguments=arguments,
                     run_name=run_name,
                     experiment_name=settings.experiment_name,

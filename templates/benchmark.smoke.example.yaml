@@ -2,6 +2,7 @@
 
 pipeline:
   package_path: "../pipelines/autogluon-tabular-training-pipeline.yaml"
+  timeseries_package_path: "../pipelines/autogluon-timeseries-training-pipeline.yaml"
 
 run:
   top_n: 2

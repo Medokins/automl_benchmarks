@@ -13,6 +13,7 @@ from automl_benchmark.paths import resolve_under
 class BenchmarkSettings:
     config_dir: Path
     pipeline_yaml: Path
+    timeseries_pipeline_yaml: Path
     train_data_secret_name: str
     train_data_bucket_name: str
     top_n: int
@@ -30,6 +31,10 @@ def benchmark_settings_from_config(cfg: dict[str, Any], config_dir: Path) -> Ben
     kfp_cfg = cfg.get("kfp") or {}
 
     pipeline_yaml = resolve_under(config_dir, str(pipeline_cfg.get("package_path", "../pipelines/autogluon-tabular-training-pipeline.yaml")))
+    timeseries_pipeline_yaml = resolve_under(
+        config_dir,
+        str(pipeline_cfg.get("timeseries_package_path", "../pipelines/autogluon-timeseries-training-pipeline.yaml")),
+    )
     secret = pipeline_cfg.get("train_data_secret_name")
     bucket = storage_cfg.get("train_data_bucket_name")
     if not secret or not bucket:
@@ -41,6 +46,7 @@ def benchmark_settings_from_config(cfg: dict[str, Any], config_dir: Path) -> Ben
     return BenchmarkSettings(
         config_dir=config_dir,
         pipeline_yaml=pipeline_yaml,
+        timeseries_pipeline_yaml=timeseries_pipeline_yaml,
         train_data_secret_name=str(secret),
         train_data_bucket_name=str(bucket),
         top_n=int(run_cfg.get("top_n", 3)),

@@ -13,13 +13,18 @@ Complete the checklist below; placeholders in the template commands section mirr
    - **`[s3]`**: Endpoint and keys for your own records / secret creation; values are not sent to the cluster by this tool.
 
 2. **`config/benchmark.yaml`** (copy from `templates/benchmark.example.yaml`)
-   - **`pipeline.package_path`**: compiled pipeline IR YAML (default when the file lives under `config/` is `../pipelines/pipeline.yaml`).
+   - **`pipeline.package_path`**: compiled **tabular** AutoGluon pipeline IR (default: `../pipelines/autogluon-tabular-training-pipeline.yaml` relative to this file’s directory).
+   - **`pipeline.timeseries_package_path`**: compiled **time series** pipeline IR (default: `../pipelines/autogluon-timeseries-training-pipeline.yaml`). Override in `credentials.ini` `[pipeline]` if needed.
    - **`dataset_manifest_path`**: manifest of datasets (path relative to this YAML’s directory).
    - **`run`**: optional tuning (`top_n`, timeouts, caching, run name prefix).
 
-3. **Dataset manifest** (YAML list of `id`, `name`, `train_data_file_key`, `label_column`, `task_type`). Start from `templates/dataset_manifest.example.yaml` or generate one (see below). Ensure objects exist in the bucket at the keys you declare.
+3. **Dataset manifest** — each row needs `train_data_file_key` and fields that match the task:
+   - **Tabular** (`task_type`: `binary`, `multiclass`, or `regression`): `label_column`, `task_type`.
+   - **Time series** (`task_type`: `timeseries`): `id_column` (item id), `timestamp_column`, and `target` **or** `label_column` for the forecast target. Optional: `known_covariates_names` (list of strings), `prediction_length` (integer).
 
-4. **Pipeline package**: `pipelines/pipeline.yaml` (or the path you set in `pipeline.package_path`) must exist and match what your cluster expects.
+   Start from `templates/dataset_manifest.example.yaml` or generate tabular/regression manifests (see below). Ensure objects exist in the bucket at the keys you declare.
+
+4. **Pipeline packages**: the compiled YAML files referenced by `pipeline.package_path` and `pipeline.timeseries_package_path` must exist. The orchestrator uses the tabular package for non-`timeseries` rows and the time series package when `task_type` is `timeseries`.
 
 ## Template commands
 
@@ -50,6 +55,10 @@ python scripts/benchmark_orchestrator.py \
 
 # Stop on first pipeline failure
 python scripts/benchmark_orchestrator.py --fail-fast --output results/benchmark_runs.csv
+
+# Only tabular or only time-series rows (by task_type)
+python scripts/benchmark_orchestrator.py --dataset-filter tabular --dry-run
+python scripts/benchmark_orchestrator.py --dataset-filter timeseries --dry-run
 ```
 
 Optional: build a long-form summary from the runs CSV (see `scripts/summarize_benchmark_results.py --help`).
