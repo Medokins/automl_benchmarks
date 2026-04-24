@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
 Submit AutoGluon KFP pipeline runs (tabular and/or time series) for each dataset in a
-manifest, wait for completion, and write a single CSV summary.
+manifest, wait for completion, and write a single CSV summary. Successful runs with S3
+credentials also write ``leaderboards/<run_id>.html`` next to the CSV when the leaderboard
+object is found.
 
 Implementation lives in the ``automl_benchmark`` package; this file is a thin CLI wrapper.
 
 Configuration:
   - YAML ($BENCHMARK_CONFIG_PATH / config/benchmark.yaml): ``pipeline.package_path`` (tabular IR),
     ``pipeline.timeseries_package_path`` (``task_type: timeseries`` rows), run tuning, manifest.
-  - credentials.ini (required): kfp host/namespace/token, bucket, pipeline secret name, [s3] for your records.
+  - credentials.ini (required): kfp host/namespace/token, bucket, pipeline secret name, [s3] for
+    optional post-run S3 listing (leaderboard HTML URI column in the CSV).
     Use config/credentials.ini, $BENCHMARK_CREDENTIALS_PATH, or ``--credentials PATH``.
 
 Usage:

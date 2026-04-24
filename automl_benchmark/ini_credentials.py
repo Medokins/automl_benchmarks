@@ -44,6 +44,9 @@ def load_credentials_ini(path: Path) -> dict[str, Any]:
         raw = by_section["storage"]
         if raw.get("train_data_bucket_name"):
             st["train_data_bucket_name"] = raw["train_data_bucket_name"]
+        for key in ("artifact_s3_prefix", "timeseries_artifact_s3_prefix"):
+            if key in raw:
+                st[key] = raw[key]
         if st:
             out["storage"] = st
 

@@ -15,6 +15,10 @@ from automl_benchmark.pipeline_params import (
     pipeline_file_for_dataset,
 )
 from automl_benchmark.pipeline_run import extract_run_id, submit_pipeline_package, wait_for_terminal_run
+from automl_benchmark.s3_leaderboard_artifact import (
+    discover_leaderboard_html_s3_uri,
+    download_leaderboard_html_to_dir,
+)
 from automl_benchmark.result_rows import (
     base_row_for_dataset,
     completed_row,
@@ -167,7 +171,34 @@ class BenchmarkOrchestrator:
 
                 if detail is None:
                     detail = client.get_run(rid)
-                rows.append(completed_row(base, rid, detail))
+                row = completed_row(base, rid, detail)
+                state = str(row.get("state", ""))
+                if is_success_state(state) and rid.strip():
+                    s3_cfg = cfg.get("s3")
+                    if isinstance(s3_cfg, dict) and s3_cfg:
+                        root = (
+                            settings.artifact_s3_root_timeseries
+                            if is_timeseries_dataset(ds)
+                            else settings.artifact_s3_root_tabular
+                        )
+                        row["leaderboard_html_s3_uri"] = discover_leaderboard_html_s3_uri(
+                            bucket=settings.train_data_bucket_name,
+                            s3_cfg=s3_cfg,
+                            run_id=rid,
+                            is_timeseries=is_timeseries_dataset(ds),
+                            artifact_root_prefix=root,
+                        )
+                        uri = str(row.get("leaderboard_html_s3_uri") or "").strip()
+                        if uri:
+                            local_rel = download_leaderboard_html_to_dir(
+                                s3_cfg,
+                                uri,
+                                output_csv.resolve().parent,
+                                run_id=rid,
+                            )
+                            if local_rel:
+                                row["leaderboard_html_path"] = local_rel
+                rows.append(row)
 
                 state = rows[-1].get("state", "")
                 if not is_success_state(str(state)) and fail_fast:

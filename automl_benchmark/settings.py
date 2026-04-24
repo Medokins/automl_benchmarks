@@ -9,13 +9,24 @@ from typing import Any
 from automl_benchmark.paths import resolve_under
 
 
+def _artifact_root_from_storage(storage_cfg: dict[str, Any], key: str, default: str) -> str:
+    """Strip slashes; empty string allowed when the key is set explicitly in config."""
+    if key not in storage_cfg:
+        return default.strip().strip("/")
+    return str(storage_cfg.get(key) or "").strip().strip("/")
+
+
 @dataclass(frozen=True)
 class BenchmarkSettings:
+    """artifact_s3_root_*: first path segment under the bucket for KFP artifacts (pipeline template name)."""
+
     config_dir: Path
     pipeline_yaml: Path
     timeseries_pipeline_yaml: Path
     train_data_secret_name: str
     train_data_bucket_name: str
+    artifact_s3_root_tabular: str
+    artifact_s3_root_timeseries: str
     top_n: int
     poll_interval_seconds: float
     timeout_seconds: float
@@ -43,12 +54,25 @@ def benchmark_settings_from_config(cfg: dict[str, Any], config_dir: Path) -> Ben
             "(set in credentials.ini only, not in benchmark.yaml)"
         )
 
+    tab_root = _artifact_root_from_storage(
+        storage_cfg,
+        "artifact_s3_prefix",
+        "autogluon-tabular-training-pipeline",
+    )
+    ts_root = _artifact_root_from_storage(
+        storage_cfg,
+        "timeseries_artifact_s3_prefix",
+        "autogluon-timeseries-training-pipeline",
+    )
+
     return BenchmarkSettings(
         config_dir=config_dir,
         pipeline_yaml=pipeline_yaml,
         timeseries_pipeline_yaml=timeseries_pipeline_yaml,
         train_data_secret_name=str(secret),
         train_data_bucket_name=str(bucket),
+        artifact_s3_root_tabular=tab_root,
+        artifact_s3_root_timeseries=ts_root,
         top_n=int(run_cfg.get("top_n", 3)),
         poll_interval_seconds=float(run_cfg.get("poll_interval_seconds", 30)),
         timeout_seconds=float(run_cfg.get("timeout_seconds", 86400)),

@@ -213,3 +213,4 @@ credentials.ini
 .DS_Store
 downloaded_datasets/
 results/
+.idea/
