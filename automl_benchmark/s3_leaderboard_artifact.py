@@ -7,32 +7,12 @@ import time
 from pathlib import Path
 from typing import Any
 
+from automl_benchmark.s3_client import make_s3_client, s3_cfg_usable
+
 logger = logging.getLogger(__name__)
 
 TABULAR_LEADERBOARD_FOLDER = "leaderboard-evaluation"
 TIMESERIES_LEADERBOARD_FOLDER = "timeseries-leaderboard-evaluation"
-
-
-def _s3_cfg_usable(s3_cfg: dict[str, Any]) -> bool:
-    return bool(str(s3_cfg.get("aws_access_key_id", "")).strip()) and bool(
-        str(s3_cfg.get("aws_secret_access_key", "")).strip()
-    )
-
-
-def _make_s3_client(s3_cfg: dict[str, Any]) -> Any:
-    import boto3
-
-    kwargs: dict[str, Any] = {}
-    ep = s3_cfg.get("endpoint")
-    if ep:
-        kwargs["endpoint_url"] = str(ep).strip()
-    return boto3.client(
-        "s3",
-        aws_access_key_id=str(s3_cfg.get("aws_access_key_id", "")).strip() or None,
-        aws_secret_access_key=str(s3_cfg.get("aws_secret_access_key", "")).strip() or None,
-        region_name=str(s3_cfg.get("aws_default_region") or "us-east-1").strip(),
-        **kwargs,
-    )
 
 
 def _list_prefix_for_run(artifact_root: str, run_id: str, leaderboard_folder: str) -> str:
@@ -118,14 +98,14 @@ def discover_leaderboard_html_s3_uri(
     """
     if not run_id.strip() or not bucket.strip():
         return ""
-    if not s3_cfg or not _s3_cfg_usable(s3_cfg):
+    if not s3_cfg or not s3_cfg_usable(s3_cfg):
         return ""
 
     folder = TIMESERIES_LEADERBOARD_FOLDER if is_timeseries else TABULAR_LEADERBOARD_FOLDER
     root = (artifact_root_prefix or "").strip().strip("/")
     for attempt in range(attempts):
         try:
-            client = _make_s3_client(s3_cfg)
+            client = make_s3_client(s3_cfg)
             keys = _list_matching_keys(client, bucket.strip(), run_id.strip(), folder, root)
             if keys:
                 uri = _to_s3_uri(bucket.strip(), keys[0])
@@ -204,7 +184,7 @@ def download_leaderboard_html_to_dir(
     exist, lists ``<key>/`` and uses the first ``.html`` / ``.htm`` object.
     """
     parsed = parse_s3_uri(s3_uri)
-    if not parsed or not _s3_cfg_usable(s3_cfg):
+    if not parsed or not s3_cfg_usable(s3_cfg):
         return ""
     bucket, key = parsed
     rid = run_id.strip()
@@ -218,7 +198,7 @@ def download_leaderboard_html_to_dir(
     try:
         from botocore.exceptions import ClientError
 
-        client = _make_s3_client(s3_cfg)
+        client = make_s3_client(s3_cfg)
         try:
             resp = client.get_object(Bucket=bucket, Key=key)
             dest_file.write_bytes(resp["Body"].read())
