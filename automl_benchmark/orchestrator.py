@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -30,8 +31,72 @@ from automl_benchmark.result_rows import (
 from automl_benchmark.results_csv import write_results_csv
 from automl_benchmark.run_state import is_success_state
 from automl_benchmark.settings import benchmark_settings_from_config, BenchmarkSettings
+from automl_benchmark.experiment_fingerprint import compute_experiment_fingerprint
+from automl_benchmark.s3_benchmark_upload import (
+    build_batch_id,
+    upload_batch_aggregated,
+    upload_single_dataset_results,
+)
+from automl_benchmark.s3_client import s3_cfg_usable
+from automl_benchmark.s3_experiment_dedupe import try_load_cached_result_row
 
 logger = logging.getLogger(__name__)
+
+
+def _infer_repo_root(config_path: Path) -> Path | None:
+    p = config_path.resolve().parent
+    if (p / ".git").is_dir():
+        return p
+    pp = p.parent
+    if (pp / ".git").is_dir():
+        return pp
+    return None
+
+
+def _maybe_upload_benchmark_row(
+    *,
+    cfg: dict[str, Any],
+    settings: BenchmarkSettings,
+    batch_id: str,
+    ds: dict[str, Any],
+    row: dict[str, Any],
+    pipeline_file: Path,
+    arguments: dict[str, Any],
+    output_csv: Path,
+    dataset_filter: str,
+    fail_fast: bool,
+    repo_root: Path | None,
+    experiment_fingerprint: str | None = None,
+) -> None:
+    if not settings.upload_benchmark_results:
+        return
+    s3_cfg = cfg.get("s3")
+    if not isinstance(s3_cfg, dict) or not s3_cfg_usable(s3_cfg):
+        return
+    if not str(row.get("run_id") or "").strip():
+        return
+    root = (
+        settings.artifact_s3_root_timeseries
+        if is_timeseries_dataset(ds)
+        else settings.artifact_s3_root_tabular
+    )
+    upload_single_dataset_results(
+        s3_cfg=s3_cfg,
+        bucket=settings.train_data_bucket_name,
+        settings=settings,
+        cfg=cfg,
+        batch_id=batch_id,
+        dataset=ds,
+        row=row,
+        pipeline_ir_path=pipeline_file.resolve(),
+        output_csv_parent=output_csv.resolve().parent,
+        arguments=arguments,
+        dataset_filter=dataset_filter,
+        fail_fast=fail_fast,
+        artifact_s3_root=root,
+        repo_root=repo_root,
+        experiment_fingerprint=experiment_fingerprint,
+    )
 
 
 def _dataset_matches_filter(ds: dict[str, Any], dataset_filter: str) -> bool:
@@ -68,11 +133,13 @@ class BenchmarkOrchestrator:
         self.config_path = config_path.resolve()
         self.credentials_ini_path = credentials_ini_path
 
-    def load_config_and_datasets(self) -> tuple[dict[str, Any], BenchmarkSettings, list[dict[str, Any]]]:
+    def load_config_and_datasets(
+        self,
+    ) -> tuple[dict[str, Any], BenchmarkSettings, list[dict[str, Any]], Path]:
         cfg, config_dir = load_merged_benchmark_config(self.config_path, self.credentials_ini_path)
         settings = benchmark_settings_from_config(cfg, config_dir)
         datasets = load_dataset_entries(cfg, config_dir)
-        return cfg, settings, datasets
+        return cfg, settings, datasets, config_dir
 
     def execute(
         self,
@@ -81,12 +148,17 @@ class BenchmarkOrchestrator:
         dry_run: bool = False,
         fail_fast: bool = False,
         dataset_filter: str = "all",
+        skip_identical_runs: bool = True,
     ) -> int:
         try:
-            cfg, settings, datasets = self.load_config_and_datasets()
+            cfg, settings, datasets, _ = self.load_config_and_datasets()
         except Exception as e:
             logger.error("%s", e)
             return 1
+
+        batch_id = build_batch_id()
+        started_at = datetime.now(timezone.utc).isoformat()
+        repo_root = _infer_repo_root(self.config_path)
 
         needs_tabular = False
         needs_ts = False
@@ -144,6 +216,30 @@ class BenchmarkOrchestrator:
                 continue
 
             assert client is not None
+
+            experiment_fp: str | None = None
+            if skip_identical_runs:
+                s3_cfg_dedupe = cfg.get("s3")
+                if isinstance(s3_cfg_dedupe, dict) and s3_cfg_usable(s3_cfg_dedupe):
+                    experiment_fp = compute_experiment_fingerprint(
+                        pipeline_ir_path=pipeline_file.resolve(),
+                        pipeline_arguments=dict(arguments),
+                        dataset=ds,
+                        settings=settings,
+                        cfg=cfg,
+                        s3_cfg=s3_cfg_dedupe,
+                        dataset_filter=dataset_filter,
+                    )
+                    cached = try_load_cached_result_row(
+                        s3_cfg=s3_cfg_dedupe,
+                        bucket=settings.train_data_bucket_name,
+                        benchmark_s3_prefix=settings.benchmark_s3_prefix,
+                        fingerprint=experiment_fp,
+                    )
+                    if cached is not None:
+                        rows.append(cached)
+                        continue
+
             try:
                 run_result = submit_pipeline_package(
                     client,
@@ -163,7 +259,22 @@ class BenchmarkOrchestrator:
                     poll_interval_seconds=settings.poll_interval_seconds,
                 )
                 if timed_out:
-                    rows.append(timeout_row(base, rid, settings.timeout_seconds))
+                    tout = timeout_row(base, rid, settings.timeout_seconds)
+                    rows.append(tout)
+                    _maybe_upload_benchmark_row(
+                        cfg=cfg,
+                        settings=settings,
+                        batch_id=batch_id,
+                        ds=ds,
+                        row=tout,
+                        pipeline_file=pipeline_file,
+                        arguments=arguments,
+                        output_csv=output_csv,
+                        dataset_filter=dataset_filter,
+                        fail_fast=fail_fast,
+                        repo_root=repo_root,
+                        experiment_fingerprint=experiment_fp,
+                    )
                     logger.error("Timeout waiting for run %s", rid)
                     if fail_fast:
                         break
@@ -199,6 +310,20 @@ class BenchmarkOrchestrator:
                             if local_rel:
                                 row["leaderboard_html_path"] = local_rel
                 rows.append(row)
+                _maybe_upload_benchmark_row(
+                    cfg=cfg,
+                    settings=settings,
+                    batch_id=batch_id,
+                    ds=ds,
+                    row=row,
+                    pipeline_file=pipeline_file,
+                    arguments=arguments,
+                    output_csv=output_csv,
+                    dataset_filter=dataset_filter,
+                    fail_fast=fail_fast,
+                    repo_root=repo_root,
+                    experiment_fingerprint=experiment_fp,
+                )
 
                 state = rows[-1].get("state", "")
                 if not is_success_state(str(state)) and fail_fast:
@@ -213,4 +338,24 @@ class BenchmarkOrchestrator:
 
         write_results_csv(rows, output_csv)
         logger.info("Wrote %d row(s) to %s", len(rows), output_csv)
+
+        if not dry_run:
+            s3_cfg = cfg.get("s3")
+            if (
+                settings.upload_benchmark_results
+                and isinstance(s3_cfg, dict)
+                and s3_cfg_usable(s3_cfg)
+            ):
+                upload_batch_aggregated(
+                    s3_cfg=s3_cfg,
+                    bucket=settings.train_data_bucket_name,
+                    settings=settings,
+                    cfg=cfg,
+                    batch_id=batch_id,
+                    started_at=started_at,
+                    output_csv=output_csv.resolve(),
+                    rows=rows,
+                    dataset_filter=dataset_filter,
+                    repo_root=repo_root,
+                )
         return 0

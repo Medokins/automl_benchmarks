@@ -58,6 +58,14 @@ def main(argv: list[str] | None = None) -> int:
             "(task_type=timeseries) manifest rows"
         ),
     )
+    parser.add_argument(
+        "--rerun-identical-experiments",
+        action="store_true",
+        help=(
+            "Always submit KFP runs even when S3 has an experiment_index entry for the same "
+            "pipeline, dataset, parameters, and environment (dedupe is on by default)"
+        ),
+    )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
 
@@ -80,6 +88,7 @@ def main(argv: list[str] | None = None) -> int:
         dry_run=args.dry_run,
         fail_fast=args.fail_fast,
         dataset_filter=args.dataset_filter,
+        skip_identical_runs=not args.rerun_identical_experiments,
     )
 
 

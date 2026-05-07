@@ -11,7 +11,8 @@ Configuration:
   - YAML ($BENCHMARK_CONFIG_PATH / config/benchmark.yaml): ``pipeline.package_path`` (tabular IR),
     ``pipeline.timeseries_package_path`` (``task_type: timeseries`` rows), run tuning, manifest.
   - credentials.ini (required): kfp host/namespace/token, bucket, pipeline secret name, [s3] for
-    optional post-run S3 listing (leaderboard HTML URI column in the CSV).
+    leaderboard discovery, uploads, and experiment dedupe (skip identical runs by default;
+    use ``--rerun-identical-experiments`` to force new pipelines).
     Use config/credentials.ini, $BENCHMARK_CREDENTIALS_PATH, or ``--credentials PATH``.
 
 Usage:

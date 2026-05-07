@@ -8,9 +8,11 @@ Complete the checklist below; placeholders in the template commands section mirr
 
 1. **`config/credentials.ini`** (copy from `templates/credentials.example.ini`)
    - **`[kfp]`**: `host` (Data Science Pipelines API URL), `namespace`, and authentication (`token`, or `token_file`, or `KFP_API_TOKEN` / `token_env`).
-   - **`[storage]`**: `train_data_bucket_name` where training CSVs live (object keys must match your manifest).
+   - **`[storage]`**: `train_data_bucket_name` where training CSVs live (object keys must match your manifest). Optional: `benchmark_s3_prefix` (default `benchmarks`), `upload_benchmark_results` (default on when not set), and KFP artifact prefix keys—see [docs/s3-storage-schema.md](docs/s3-storage-schema.md).
    - **`[pipeline]`**: `train_data_secret_name` — Kubernetes secret in the project that pipeline pods use for S3 (or equivalent) access.
-   - **`[s3]`**: Endpoint and keys for your own records / secret creation; values are not sent to the cluster by this tool.
+   - **`[s3]`**: Endpoint and keys for your own records / secret creation; values are not sent to the cluster by this tool. When `upload_benchmark_results` is enabled (see `[storage]`), these credentials also **upload** per-run and batch results to S3 (`s3:PutObject` required on the benchmark prefix).
+   - **S3 layout & metadata**: See [docs/s3-storage-schema.md](docs/s3-storage-schema.md) for `benchmarks/{batch_id}/` keys, `metadata.json`, and aggregated `merged_leaderboards.csv`.
+   - **Skip duplicate experiments** (default **on**): If `[s3]` can read `benchmarks/experiment_index/v1/{fingerprint}.json`, the orchestrator reuses the stored `results.csv` row instead of submitting KFP again. Pass **`--rerun-identical-experiments`** to force new pipeline runs.
 
 2. **`config/benchmark.yaml`** (copy from `templates/benchmark.example.yaml`)
    - **`pipeline.package_path`**: compiled **tabular** AutoGluon pipeline IR (default: `../pipelines/autogluon-tabular-training-pipeline.yaml` relative to this file’s directory).
@@ -59,6 +61,9 @@ python scripts/benchmark_orchestrator.py --fail-fast --output results/benchmark_
 # Only tabular or only time-series rows (by task_type)
 python scripts/benchmark_orchestrator.py --dataset-filter tabular --dry-run
 python scripts/benchmark_orchestrator.py --dataset-filter timeseries --dry-run
+
+# Ignore S3 experiment cache and always submit pipelines (same fingerprint as a prior run)
+python scripts/benchmark_orchestrator.py --rerun-identical-experiments --output results/benchmark_runs.csv
 ```
 
 Optional: build a long-form summary from the runs CSV (see `scripts/summarize_benchmark_results.py --help`).
