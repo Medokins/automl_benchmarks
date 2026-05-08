@@ -8,7 +8,7 @@ import os
 import sys
 from pathlib import Path
 
-from automl_benchmark.orchestrator import BenchmarkOrchestrator
+from autorag_benchmark.orchestrator import BenchmarkOrchestrator
 
 
 def default_config_path() -> Path:
@@ -19,7 +19,7 @@ def default_config_path() -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run AutoML KFP benchmark suite and aggregate CSV.")
+    parser = argparse.ArgumentParser(description="Run RAG optimization KFP benchmark suite and aggregate CSV.")
     parser.add_argument(
         "--config",
         type=Path,
@@ -50,21 +50,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--dataset-filter",
-        choices=("all", "tabular", "timeseries"),
+        choices=("all",),
         default="all",
         metavar="MODE",
-        help=(
-            "Run only tabular (binary/multiclass/regression) or only time series "
-            "(task_type=timeseries) manifest rows"
-        ),
-    )
-    parser.add_argument(
-        "--rerun-identical-experiments",
-        action="store_true",
-        help=(
-            "Always submit KFP runs even when S3 has an experiment_index entry for the same "
-            "pipeline, dataset, parameters, and environment (dedupe is on by default)"
-        ),
+        help="Dataset filter (only 'all' supported for RAG benchmarks)",
     )
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args(argv)
@@ -88,7 +77,6 @@ def main(argv: list[str] | None = None) -> int:
         dry_run=args.dry_run,
         fail_fast=args.fail_fast,
         dataset_filter=args.dataset_filter,
-        skip_identical_runs=not args.rerun_identical_experiments,
     )
 
 

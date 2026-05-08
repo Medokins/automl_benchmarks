@@ -42,20 +42,22 @@ def load_credentials_ini(path: Path) -> dict[str, Any]:
     if "storage" in by_section:
         st: dict[str, Any] = {}
         raw = by_section["storage"]
-        if raw.get("train_data_bucket_name"):
-            st["train_data_bucket_name"] = raw["train_data_bucket_name"]
-        for key in ("artifact_s3_prefix", "timeseries_artifact_s3_prefix", "benchmark_s3_prefix"):
-            if key in raw:
+        for key in ("input_data_bucket_name", "test_data_bucket_name"):
+            if raw.get(key):
                 st[key] = raw[key]
-        if "upload_benchmark_results" in raw:
-            st["upload_benchmark_results"] = _truthy(raw["upload_benchmark_results"])
         if st:
             out["storage"] = st
 
     if "pipeline" in by_section:
         pl: dict[str, Any] = {}
         raw = by_section["pipeline"]
-        for key in ("train_data_secret_name", "package_path", "timeseries_package_path"):
+        for key in (
+            "input_data_secret_name",
+            "test_data_secret_name",
+            "llama_stack_secret_name",
+            "llama_stack_vector_io_provider_id",
+            "package_path",
+        ):
             if raw.get(key):
                 pl[key] = raw[key]
         if pl:
@@ -76,8 +78,10 @@ def load_credentials_ini(path: Path) -> dict[str, Any]:
     if "run" in by_section:
         rn: dict[str, Any] = {}
         raw = by_section["run"]
-        if raw.get("top_n"):
-            rn["top_n"] = int(raw["top_n"])
+        if raw.get("optimization_metric"):
+            rn["optimization_metric"] = raw["optimization_metric"]
+        if raw.get("optimization_max_rag_patterns"):
+            rn["optimization_max_rag_patterns"] = int(raw["optimization_max_rag_patterns"])
         if raw.get("poll_interval_seconds"):
             rn["poll_interval_seconds"] = float(raw["poll_interval_seconds"])
         if raw.get("timeout_seconds"):

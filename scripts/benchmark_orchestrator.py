@@ -1,18 +1,15 @@
 #!/usr/bin/env python3
 """
-Submit AutoGluon KFP pipeline runs (tabular and/or time series) for each dataset in a
-manifest, wait for completion, and write a single CSV summary. Successful runs with S3
-credentials also write ``leaderboards/<run_id>.html`` next to the CSV when the leaderboard
-object is found.
+Submit RAG optimization KFP pipeline runs for each use case in a manifest,
+wait for completion, and write a single CSV summary.
 
-Implementation lives in the ``automl_benchmark`` package; this file is a thin CLI wrapper.
+Implementation lives in the ``autorag_benchmark`` package; this file is a thin CLI wrapper.
 
 Configuration:
-  - YAML ($BENCHMARK_CONFIG_PATH / config/benchmark.yaml): ``pipeline.package_path`` (tabular IR),
-    ``pipeline.timeseries_package_path`` (``task_type: timeseries`` rows), run tuning, manifest.
-  - credentials.ini (required): kfp host/namespace/token, bucket, pipeline secret name, [s3] for
-    leaderboard discovery, uploads, and experiment dedupe (skip identical runs by default;
-    use ``--rerun-identical-experiments`` to force new pipelines).
+  - YAML ($BENCHMARK_CONFIG_PATH / config/benchmark.yaml): ``pipeline.package_path`` (RAG optimization IR),
+    optimization settings (metric, max patterns), run tuning, manifest.
+  - credentials.ini (required): kfp host/namespace/token, buckets (input/test), pipeline secrets,
+    llama-stack credentials, [s3] for your records.
     Use config/credentials.ini, $BENCHMARK_CREDENTIALS_PATH, or ``--credentials PATH``.
 
 Usage:
