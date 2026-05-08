@@ -1,8 +1,25 @@
 # AutoML benchmarks (KFP orchestrator)
 
-This repository helps to run an AutoML tabular training **Kubeflow Pipelines** (KFP) workflow across many datasets, poll runs to completion, and write a single **CSV** of results. Configuration splits **non-secret layout** (YAML) from **cluster and storage identity** (INI).
+This repository helps to run benchmark suites on **Kubeflow Pipelines** (KFP): **AutoML** (AutoGluon tabular and time series) and **AutoRAG** (RAG optimization). Each suite polls runs to completion and writes a **CSV** of results. Configuration splits **non-secret layout** (YAML) from **cluster and storage identity** (INI).
 
-## Before running experiments
+Python packages:
+
+- **`automl_benchmark`** — AutoGluon benchmarks (dedupe, leaderboard discovery, S3 uploads).
+- **`autorag_benchmark`** — RAG optimization pipeline orchestration.
+- **`benchmark_common`** — shared loading, KFP client, polling, CSV writer (used by both).
+
+Install from the repo root: `pip install -e .` (see [pyproject.toml](pyproject.toml)) or use `requirements-benchmark.txt`.
+
+## AutoRAG benchmarks
+
+Use a separate YAML + manifest shaped for RAG (`test_data_key` per dataset; optional `input_data_key`). Copy [templates/benchmark.autorag.example.yaml](templates/benchmark.autorag.example.yaml) and [templates/dataset_manifest.autorag.example.yaml](templates/dataset_manifest.autorag.example.yaml). In `credentials.ini`, set **`input_data_bucket_name`**, **`test_data_bucket_name`**, **`input_data_secret_name`**, **`test_data_secret_name`**, **`llama_stack_secret_name`**, and **`llama_stack_vector_io_provider_id`** (see commented blocks in [templates/credentials.example.ini](templates/credentials.example.ini)).
+
+```bash
+python scripts/autorag_benchmark_orchestrator.py --config config/benchmark.yaml --credentials config/credentials.ini --output results/rag_benchmark_runs.csv
+python scripts/autorag_benchmark_orchestrator.py --dry-run -v
+```
+
+## Before running experiments (AutoML)
 
 Complete the checklist below; placeholders in the template commands section mirror these items.
 

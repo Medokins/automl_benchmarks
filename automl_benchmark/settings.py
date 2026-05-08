@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from automl_benchmark.paths import resolve_under
+from benchmark_common.paths import resolve_under
 
 
 def _artifact_root_from_storage(storage_cfg: dict[str, Any], key: str, default: str) -> str:

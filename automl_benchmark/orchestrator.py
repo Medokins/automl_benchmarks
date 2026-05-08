@@ -8,14 +8,14 @@ from pathlib import Path
 from typing import Any
 
 from automl_benchmark.config_loader import load_merged_benchmark_config
-from automl_benchmark.kfp_client import create_kfp_client
-from automl_benchmark.manifest import load_dataset_entries
+from benchmark_common.kfp_client import create_kfp_client
+from benchmark_common.manifest import load_dataset_entries
 from automl_benchmark.pipeline_params import (
     build_pipeline_arguments,
     is_timeseries_dataset,
     pipeline_file_for_dataset,
 )
-from automl_benchmark.pipeline_run import extract_run_id, submit_pipeline_package, wait_for_terminal_run
+from benchmark_common.pipeline_run import extract_run_id, submit_pipeline_package, wait_for_terminal_run
 from automl_benchmark.s3_leaderboard_artifact import (
     discover_leaderboard_html_s3_uri,
     download_leaderboard_html_to_dir,
@@ -28,8 +28,8 @@ from automl_benchmark.result_rows import (
     submit_error_row,
     timeout_row,
 )
-from automl_benchmark.results_csv import write_results_csv
-from automl_benchmark.run_state import is_success_state
+from benchmark_common.results_csv import write_results_csv
+from benchmark_common.run_state import is_success_state
 from automl_benchmark.settings import benchmark_settings_from_config, BenchmarkSettings
 from automl_benchmark.experiment_fingerprint import compute_experiment_fingerprint
 from automl_benchmark.s3_benchmark_upload import (

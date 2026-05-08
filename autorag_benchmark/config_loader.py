@@ -1,4 +1,4 @@
-"""Load benchmark YAML and merge required credentials INI (credentials live only in the INI)."""
+"""Load benchmark YAML and merge credentials INI for AutoRAG benchmarks."""
 
 from __future__ import annotations
 
@@ -41,12 +41,20 @@ def validate_merged_benchmark_config(cfg: dict[str, Any]) -> None:
         raise ValueError(f"Missing kfp.namespace. {_CREDENTIALS_HELP}")
 
     storage = cfg.get("storage") or {}
-    if not str(storage.get("train_data_bucket_name", "")).strip():
-        raise ValueError(f"Missing storage.train_data_bucket_name. {_CREDENTIALS_HELP}")
+    if not str(storage.get("input_data_bucket_name", "")).strip():
+        raise ValueError(f"Missing storage.input_data_bucket_name. {_CREDENTIALS_HELP}")
+    if not str(storage.get("test_data_bucket_name", "")).strip():
+        raise ValueError(f"Missing storage.test_data_bucket_name. {_CREDENTIALS_HELP}")
 
     pipeline = cfg.get("pipeline") or {}
-    if not str(pipeline.get("train_data_secret_name", "")).strip():
-        raise ValueError(f"Missing pipeline.train_data_secret_name. {_CREDENTIALS_HELP}")
+    if not str(pipeline.get("input_data_secret_name", "")).strip():
+        raise ValueError(f"Missing pipeline.input_data_secret_name. {_CREDENTIALS_HELP}")
+    if not str(pipeline.get("test_data_secret_name", "")).strip():
+        raise ValueError(f"Missing pipeline.test_data_secret_name. {_CREDENTIALS_HELP}")
+    if not str(pipeline.get("llama_stack_secret_name", "")).strip():
+        raise ValueError(f"Missing pipeline.llama_stack_secret_name. {_CREDENTIALS_HELP}")
+    if not str(pipeline.get("llama_stack_vector_io_provider_id", "")).strip():
+        raise ValueError(f"Missing pipeline.llama_stack_vector_io_provider_id. {_CREDENTIALS_HELP}")
 
 
 def load_merged_benchmark_config(

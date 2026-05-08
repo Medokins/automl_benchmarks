@@ -16,6 +16,7 @@ def load_credentials_ini(path: Path) -> dict[str, Any]:
     Parse INI into a dict shaped like benchmark.yaml (nested sections).
 
     Recognized sections (case-insensitive): kfp, storage, pipeline, s3, run.
+    Supports both AutoML (train_data_*, artifact prefixes) and AutoRAG keys.
     """
     cp = configparser.ConfigParser(interpolation=None)
     if not path.is_file():
@@ -44,6 +45,9 @@ def load_credentials_ini(path: Path) -> dict[str, Any]:
         raw = by_section["storage"]
         if raw.get("train_data_bucket_name"):
             st["train_data_bucket_name"] = raw["train_data_bucket_name"]
+        for key in ("input_data_bucket_name", "test_data_bucket_name"):
+            if raw.get(key):
+                st[key] = raw[key]
         for key in ("artifact_s3_prefix", "timeseries_artifact_s3_prefix", "benchmark_s3_prefix"):
             if key in raw:
                 st[key] = raw[key]
@@ -55,7 +59,15 @@ def load_credentials_ini(path: Path) -> dict[str, Any]:
     if "pipeline" in by_section:
         pl: dict[str, Any] = {}
         raw = by_section["pipeline"]
-        for key in ("train_data_secret_name", "package_path", "timeseries_package_path"):
+        for key in (
+            "train_data_secret_name",
+            "package_path",
+            "timeseries_package_path",
+            "input_data_secret_name",
+            "test_data_secret_name",
+            "llama_stack_secret_name",
+            "llama_stack_vector_io_provider_id",
+        ):
             if raw.get(key):
                 pl[key] = raw[key]
         if pl:
@@ -78,6 +90,10 @@ def load_credentials_ini(path: Path) -> dict[str, Any]:
         raw = by_section["run"]
         if raw.get("top_n"):
             rn["top_n"] = int(raw["top_n"])
+        if raw.get("optimization_metric"):
+            rn["optimization_metric"] = raw["optimization_metric"]
+        if raw.get("optimization_max_rag_patterns"):
+            rn["optimization_max_rag_patterns"] = int(raw["optimization_max_rag_patterns"])
         if raw.get("poll_interval_seconds"):
             rn["poll_interval_seconds"] = float(raw["poll_interval_seconds"])
         if raw.get("timeout_seconds"):

@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from automl_benchmark.paths import resolve_under
-from automl_benchmark.yaml_io import load_yaml_dict
+from benchmark_common.paths import resolve_under
+from benchmark_common.yaml_io import load_yaml_dict
 
 
 def load_dataset_entries(cfg: dict[str, Any], config_dir: Path) -> list[dict[str, Any]]:

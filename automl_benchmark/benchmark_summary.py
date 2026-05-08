@@ -230,8 +230,8 @@ def records_to_summary_rows(
     force_refetch: bool = False,
 ) -> list[dict[str, Any]]:
     """Expand benchmark run records (dict rows) to summary rows."""
-    from automl_benchmark.metrics_extraction import run_to_metrics_dict
-    from automl_benchmark.run_state import unwrap_run_from_get_run
+    from benchmark_common.metrics_extraction import run_to_metrics_dict
+    from benchmark_common.run_state import unwrap_run_from_get_run
 
     out: list[dict[str, Any]] = []
     for r in records:

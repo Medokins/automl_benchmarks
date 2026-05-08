@@ -6,7 +6,7 @@ import json
 from enum import Enum
 from typing import Any
 
-from automl_benchmark.run_state import unwrap_run_from_get_run
+from benchmark_common.run_state import unwrap_run_from_get_run
 
 
 def _to_jsonable(value: Any) -> Any:
@@ -30,7 +30,7 @@ def _to_jsonable(value: Any) -> Any:
 
 def run_to_metrics_dict(run: Any) -> dict[str, Any]:
     """Compact, JSON-serializable summary (no pipeline_spec — it breaks CSV and is not useful here)."""
-    payload: dict[str, Any] = {"pipeline_spec": "omitted (see pipelines/autogluon-tabular-training-pipeline.yaml in repo)"}
+    payload: dict[str, Any] = {"pipeline_spec": "omitted"}
     for attr in ("metrics", "runtime_context"):
         v = getattr(run, attr, None)
         if v is not None:

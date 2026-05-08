@@ -1,0 +1,936 @@
+diff --git a/automl_benchmark/__init__.py b/automl_benchmark/__init__.py
+index a96bfdd..00625c5 100644
+--- a/automl_benchmark/__init__.py
++++ b/automl_benchmark/__init__.py
+@@ -1,5 +1,5 @@
+-"""AutoML KFP benchmark orchestration (config, manifests, runs, CSV export)."""
++"""AutoRAG KFP benchmark orchestration (config, manifests, runs, CSV export)."""
+ 
+-from automl_benchmark.orchestrator import BenchmarkOrchestrator
++from autorag_benchmark.orchestrator import BenchmarkOrchestrator
+ 
+ __all__ = ["BenchmarkOrchestrator"]
+diff --git a/automl_benchmark/benchmark_summary.py b/automl_benchmark/benchmark_summary.py
+index d8f90ad..0473537 100644
+--- a/automl_benchmark/benchmark_summary.py
++++ b/automl_benchmark/benchmark_summary.py
+@@ -230,8 +230,8 @@ def records_to_summary_rows(
+     force_refetch: bool = False,
+ ) -> list[dict[str, Any]]:
+     """Expand benchmark run records (dict rows) to summary rows."""
+-    from automl_benchmark.metrics_extraction import run_to_metrics_dict
+-    from automl_benchmark.run_state import unwrap_run_from_get_run
++    from autorag_benchmark.metrics_extraction import run_to_metrics_dict
++    from autorag_benchmark.run_state import unwrap_run_from_get_run
+ 
+     out: list[dict[str, Any]] = []
+     for r in records:
+diff --git a/automl_benchmark/cli.py b/automl_benchmark/cli.py
+index f5c1f0f..cde2a20 100644
+--- a/automl_benchmark/cli.py
++++ b/automl_benchmark/cli.py
+@@ -8,7 +8,7 @@ import os
+ import sys
+ from pathlib import Path
+ 
+-from automl_benchmark.orchestrator import BenchmarkOrchestrator
++from autorag_benchmark.orchestrator import BenchmarkOrchestrator
+ 
+ 
+ def default_config_path() -> Path:
+@@ -19,7 +19,7 @@ def default_config_path() -> Path:
+ 
+ 
+ def main(argv: list[str] | None = None) -> int:
+-    parser = argparse.ArgumentParser(description="Run AutoML KFP benchmark suite and aggregate CSV.")
++    parser = argparse.ArgumentParser(description="Run RAG optimization KFP benchmark suite and aggregate CSV.")
+     parser.add_argument(
+         "--config",
+         type=Path,
+@@ -50,21 +50,10 @@ def main(argv: list[str] | None = None) -> int:
+     )
+     parser.add_argument(
+         "--dataset-filter",
+-        choices=("all", "tabular", "timeseries"),
++        choices=("all",),
+         default="all",
+         metavar="MODE",
+-        help=(
+-            "Run only tabular (binary/multiclass/regression) or only time series "
+-            "(task_type=timeseries) manifest rows"
+-        ),
+-    )
+-    parser.add_argument(
+-        "--rerun-identical-experiments",
+-        action="store_true",
+-        help=(
+-            "Always submit KFP runs even when S3 has an experiment_index entry for the same "
+-            "pipeline, dataset, parameters, and environment (dedupe is on by default)"
+-        ),
++        help="Dataset filter (only 'all' supported for RAG benchmarks)",
+     )
+     parser.add_argument("-v", "--verbose", action="store_true")
+     args = parser.parse_args(argv)
+@@ -88,7 +77,6 @@ def main(argv: list[str] | None = None) -> int:
+         dry_run=args.dry_run,
+         fail_fast=args.fail_fast,
+         dataset_filter=args.dataset_filter,
+-        skip_identical_runs=not args.rerun_identical_experiments,
+     )
+ 
+ 
+diff --git a/automl_benchmark/config_loader.py b/automl_benchmark/config_loader.py
+index 73c83d0..785c35d 100644
+--- a/automl_benchmark/config_loader.py
++++ b/automl_benchmark/config_loader.py
+@@ -7,9 +7,9 @@ import os
+ from pathlib import Path
+ from typing import Any
+ 
+-from automl_benchmark.ini_credentials import load_credentials_ini
+-from automl_benchmark.kubernetes_config import load_benchmark_config_file
+-from automl_benchmark.merge import deep_merge
++from autorag_benchmark.ini_credentials import load_credentials_ini
++from autorag_benchmark.kubernetes_config import load_benchmark_config_file
++from autorag_benchmark.merge import deep_merge
+ 
+ logger = logging.getLogger(__name__)
+ 
+@@ -41,12 +41,20 @@ def validate_merged_benchmark_config(cfg: dict[str, Any]) -> None:
+         raise ValueError(f"Missing kfp.namespace. {_CREDENTIALS_HELP}")
+ 
+     storage = cfg.get("storage") or {}
+-    if not str(storage.get("train_data_bucket_name", "")).strip():
+-        raise ValueError(f"Missing storage.train_data_bucket_name. {_CREDENTIALS_HELP}")
++    if not str(storage.get("input_data_bucket_name", "")).strip():
++        raise ValueError(f"Missing storage.input_data_bucket_name. {_CREDENTIALS_HELP}")
++    if not str(storage.get("test_data_bucket_name", "")).strip():
++        raise ValueError(f"Missing storage.test_data_bucket_name. {_CREDENTIALS_HELP}")
+ 
+     pipeline = cfg.get("pipeline") or {}
+-    if not str(pipeline.get("train_data_secret_name", "")).strip():
+-        raise ValueError(f"Missing pipeline.train_data_secret_name. {_CREDENTIALS_HELP}")
++    if not str(pipeline.get("input_data_secret_name", "")).strip():
++        raise ValueError(f"Missing pipeline.input_data_secret_name. {_CREDENTIALS_HELP}")
++    if not str(pipeline.get("test_data_secret_name", "")).strip():
++        raise ValueError(f"Missing pipeline.test_data_secret_name. {_CREDENTIALS_HELP}")
++    if not str(pipeline.get("llama_stack_secret_name", "")).strip():
++        raise ValueError(f"Missing pipeline.llama_stack_secret_name. {_CREDENTIALS_HELP}")
++    if not str(pipeline.get("llama_stack_vector_io_provider_id", "")).strip():
++        raise ValueError(f"Missing pipeline.llama_stack_vector_io_provider_id. {_CREDENTIALS_HELP}")
+ 
+ 
+ def load_merged_benchmark_config(
+diff --git a/automl_benchmark/ini_credentials.py b/automl_benchmark/ini_credentials.py
+index 542620a..6e0f138 100644
+--- a/automl_benchmark/ini_credentials.py
++++ b/automl_benchmark/ini_credentials.py
+@@ -42,20 +42,22 @@ def load_credentials_ini(path: Path) -> dict[str, Any]:
+     if "storage" in by_section:
+         st: dict[str, Any] = {}
+         raw = by_section["storage"]
+-        if raw.get("train_data_bucket_name"):
+-            st["train_data_bucket_name"] = raw["train_data_bucket_name"]
+-        for key in ("artifact_s3_prefix", "timeseries_artifact_s3_prefix", "benchmark_s3_prefix"):
+-            if key in raw:
++        for key in ("input_data_bucket_name", "test_data_bucket_name"):
++            if raw.get(key):
+                 st[key] = raw[key]
+-        if "upload_benchmark_results" in raw:
+-            st["upload_benchmark_results"] = _truthy(raw["upload_benchmark_results"])
+         if st:
+             out["storage"] = st
+ 
+     if "pipeline" in by_section:
+         pl: dict[str, Any] = {}
+         raw = by_section["pipeline"]
+-        for key in ("train_data_secret_name", "package_path", "timeseries_package_path"):
++        for key in (
++            "input_data_secret_name",
++            "test_data_secret_name",
++            "llama_stack_secret_name",
++            "llama_stack_vector_io_provider_id",
++            "package_path",
++        ):
+             if raw.get(key):
+                 pl[key] = raw[key]
+         if pl:
+@@ -76,8 +78,10 @@ def load_credentials_ini(path: Path) -> dict[str, Any]:
+     if "run" in by_section:
+         rn: dict[str, Any] = {}
+         raw = by_section["run"]
+-        if raw.get("top_n"):
+-            rn["top_n"] = int(raw["top_n"])
++        if raw.get("optimization_metric"):
++            rn["optimization_metric"] = raw["optimization_metric"]
++        if raw.get("optimization_max_rag_patterns"):
++            rn["optimization_max_rag_patterns"] = int(raw["optimization_max_rag_patterns"])
+         if raw.get("poll_interval_seconds"):
+             rn["poll_interval_seconds"] = float(raw["poll_interval_seconds"])
+         if raw.get("timeout_seconds"):
+diff --git a/automl_benchmark/kubernetes_config.py b/automl_benchmark/kubernetes_config.py
+index c0aeeb0..176dc31 100644
+--- a/automl_benchmark/kubernetes_config.py
++++ b/automl_benchmark/kubernetes_config.py
+@@ -6,8 +6,8 @@ import logging
+ from pathlib import Path
+ from typing import Any
+ 
+-from automl_benchmark.merge import deep_merge
+-from automl_benchmark.yaml_io import load_yaml_dict
++from autorag_benchmark.merge import deep_merge
++from autorag_benchmark.yaml_io import load_yaml_dict
+ 
+ logger = logging.getLogger(__name__)
+ 
+diff --git a/automl_benchmark/manifest.py b/automl_benchmark/manifest.py
+index 18afd0a..2ab9477 100644
+--- a/automl_benchmark/manifest.py
++++ b/automl_benchmark/manifest.py
+@@ -5,8 +5,8 @@ from __future__ import annotations
+ from pathlib import Path
+ from typing import Any
+ 
+-from automl_benchmark.paths import resolve_under
+-from automl_benchmark.yaml_io import load_yaml_dict
++from autorag_benchmark.paths import resolve_under
++from autorag_benchmark.yaml_io import load_yaml_dict
+ 
+ 
+ def load_dataset_entries(cfg: dict[str, Any], config_dir: Path) -> list[dict[str, Any]]:
+diff --git a/automl_benchmark/metrics_extraction.py b/automl_benchmark/metrics_extraction.py
+index 0b8401e..db3d6c8 100644
+--- a/automl_benchmark/metrics_extraction.py
++++ b/automl_benchmark/metrics_extraction.py
+@@ -6,7 +6,7 @@ import json
+ from enum import Enum
+ from typing import Any
+ 
+-from automl_benchmark.run_state import unwrap_run_from_get_run
++from autorag_benchmark.run_state import unwrap_run_from_get_run
+ 
+ 
+ def _to_jsonable(value: Any) -> Any:
+diff --git a/automl_benchmark/orchestrator.py b/automl_benchmark/orchestrator.py
+index f8829a1..0245443 100644
+--- a/automl_benchmark/orchestrator.py
++++ b/automl_benchmark/orchestrator.py
+@@ -3,24 +3,18 @@
+ from __future__ import annotations
+ 
+ import logging
+-from datetime import datetime, timezone
+ from pathlib import Path
+ from typing import Any
+ 
+-from automl_benchmark.config_loader import load_merged_benchmark_config
+-from automl_benchmark.kfp_client import create_kfp_client
+-from automl_benchmark.manifest import load_dataset_entries
+-from automl_benchmark.pipeline_params import (
++from autorag_benchmark.config_loader import load_merged_benchmark_config
++from autorag_benchmark.kfp_client import create_kfp_client
++from autorag_benchmark.manifest import load_dataset_entries
++from autorag_benchmark.pipeline_params import (
+     build_pipeline_arguments,
+-    is_timeseries_dataset,
+     pipeline_file_for_dataset,
+ )
+-from automl_benchmark.pipeline_run import extract_run_id, submit_pipeline_package, wait_for_terminal_run
+-from automl_benchmark.s3_leaderboard_artifact import (
+-    discover_leaderboard_html_s3_uri,
+-    download_leaderboard_html_to_dir,
+-)
+-from automl_benchmark.result_rows import (
++from autorag_benchmark.pipeline_run import extract_run_id, submit_pipeline_package, wait_for_terminal_run
++from autorag_benchmark.result_rows import (
+     base_row_for_dataset,
+     completed_row,
+     dry_run_row,
+@@ -28,101 +22,23 @@ from automl_benchmark.result_rows import (
+     submit_error_row,
+     timeout_row,
+ )
+-from automl_benchmark.results_csv import write_results_csv
+-from automl_benchmark.run_state import is_success_state
+-from automl_benchmark.settings import benchmark_settings_from_config, BenchmarkSettings
+-from automl_benchmark.experiment_fingerprint import compute_experiment_fingerprint
+-from automl_benchmark.s3_benchmark_upload import (
+-    build_batch_id,
+-    upload_batch_aggregated,
+-    upload_single_dataset_results,
+-)
+-from automl_benchmark.s3_client import s3_cfg_usable
+-from automl_benchmark.s3_experiment_dedupe import try_load_cached_result_row
++from autorag_benchmark.results_csv import write_results_csv
++from autorag_benchmark.run_state import is_success_state
++from autorag_benchmark.settings import benchmark_settings_from_config, BenchmarkSettings
+ 
+ logger = logging.getLogger(__name__)
+ 
+ 
+-def _infer_repo_root(config_path: Path) -> Path | None:
+-    p = config_path.resolve().parent
+-    if (p / ".git").is_dir():
+-        return p
+-    pp = p.parent
+-    if (pp / ".git").is_dir():
+-        return pp
+-    return None
+-
+-
+-def _maybe_upload_benchmark_row(
+-    *,
+-    cfg: dict[str, Any],
+-    settings: BenchmarkSettings,
+-    batch_id: str,
+-    ds: dict[str, Any],
+-    row: dict[str, Any],
+-    pipeline_file: Path,
+-    arguments: dict[str, Any],
+-    output_csv: Path,
+-    dataset_filter: str,
+-    fail_fast: bool,
+-    repo_root: Path | None,
+-    experiment_fingerprint: str | None = None,
+-) -> None:
+-    if not settings.upload_benchmark_results:
+-        return
+-    s3_cfg = cfg.get("s3")
+-    if not isinstance(s3_cfg, dict) or not s3_cfg_usable(s3_cfg):
+-        return
+-    if not str(row.get("run_id") or "").strip():
+-        return
+-    root = (
+-        settings.artifact_s3_root_timeseries
+-        if is_timeseries_dataset(ds)
+-        else settings.artifact_s3_root_tabular
+-    )
+-    upload_single_dataset_results(
+-        s3_cfg=s3_cfg,
+-        bucket=settings.train_data_bucket_name,
+-        settings=settings,
+-        cfg=cfg,
+-        batch_id=batch_id,
+-        dataset=ds,
+-        row=row,
+-        pipeline_ir_path=pipeline_file.resolve(),
+-        output_csv_parent=output_csv.resolve().parent,
+-        arguments=arguments,
+-        dataset_filter=dataset_filter,
+-        fail_fast=fail_fast,
+-        artifact_s3_root=root,
+-        repo_root=repo_root,
+-        experiment_fingerprint=experiment_fingerprint,
+-    )
+-
+-
+ def _dataset_matches_filter(ds: dict[str, Any], dataset_filter: str) -> bool:
+-    if dataset_filter == "all":
+-        return True
+-    ts = is_timeseries_dataset(ds)
+-    if dataset_filter == "tabular":
+-        return not ts
+-    if dataset_filter == "timeseries":
+-        return ts
+-    return True
++    """Filter datasets - for RAG benchmarks, 'all' is the only supported filter."""
++    return dataset_filter == "all"
+ 
+ 
+ def _validate_dataset_entry(ds: dict[str, Any], ds_id: str) -> str | None:
+-    if not ds.get("train_data_file_key"):
+-        return f"Dataset {ds_id} missing train_data_file_key"
+-    if is_timeseries_dataset(ds):
+-        if not ds.get("id_column") or not ds.get("timestamp_column"):
+-            return (
+-                f"Dataset {ds_id} (task_type=timeseries) requires id_column and timestamp_column"
+-            )
+-        if not (ds.get("target") or ds.get("label_column")):
+-            return f"Dataset {ds_id} (task_type=timeseries) requires target or label_column"
+-        return None
+-    if not ds.get("label_column") or not ds.get("task_type"):
+-        return f"Dataset {ds_id} missing label_column or task_type"
++    """Validate that a RAG dataset entry has required fields."""
++    if not ds.get("test_data_key"):
++        return f"Dataset {ds_id} missing test_data_key (path to test data JSON file)"
++    # input_data_key is optional (can be empty if sampling from bucket root)
+     return None
+ 
+ 
+@@ -133,13 +49,11 @@ class BenchmarkOrchestrator:
+         self.config_path = config_path.resolve()
+         self.credentials_ini_path = credentials_ini_path
+ 
+-    def load_config_and_datasets(
+-        self,
+-    ) -> tuple[dict[str, Any], BenchmarkSettings, list[dict[str, Any]], Path]:
++    def load_config_and_datasets(self) -> tuple[dict[str, Any], BenchmarkSettings, list[dict[str, Any]]]:
+         cfg, config_dir = load_merged_benchmark_config(self.config_path, self.credentials_ini_path)
+         settings = benchmark_settings_from_config(cfg, config_dir)
+         datasets = load_dataset_entries(cfg, config_dir)
+-        return cfg, settings, datasets, config_dir
++        return cfg, settings, datasets
+ 
+     def execute(
+         self,
+@@ -148,32 +62,16 @@ class BenchmarkOrchestrator:
+         dry_run: bool = False,
+         fail_fast: bool = False,
+         dataset_filter: str = "all",
+-        skip_identical_runs: bool = True,
+     ) -> int:
+         try:
+-            cfg, settings, datasets, _ = self.load_config_and_datasets()
++            cfg, settings, datasets = self.load_config_and_datasets()
+         except Exception as e:
+             logger.error("%s", e)
+             return 1
+ 
+-        batch_id = build_batch_id()
+-        started_at = datetime.now(timezone.utc).isoformat()
+-        repo_root = _infer_repo_root(self.config_path)
+-
+-        needs_tabular = False
+-        needs_ts = False
+-        for ds in datasets:
+-            if not _dataset_matches_filter(ds, dataset_filter):
+-                continue
+-            if is_timeseries_dataset(ds):
+-                needs_ts = True
+-            else:
+-                needs_tabular = True
+-        if needs_tabular and not settings.pipeline_yaml.is_file():
+-            logger.error("Tabular pipeline package not found: %s", settings.pipeline_yaml)
+-            return 1
+-        if needs_ts and not settings.timeseries_pipeline_yaml.is_file():
+-            logger.error("Time series pipeline package not found: %s", settings.timeseries_pipeline_yaml)
++        # Validate pipeline package exists
++        if not settings.pipeline_yaml.is_file():
++            logger.error("RAG pipeline package not found: %s", settings.pipeline_yaml)
+             return 1
+ 
+         rows: list[dict[str, Any]] = []
+@@ -208,7 +106,7 @@ class BenchmarkOrchestrator:
+ 
+             pipeline_file = pipeline_file_for_dataset(ds, settings)
+             run_name = run_name_for_dataset(settings.run_name_prefix, ds_id)
+-            base = base_row_for_dataset(ds, i, run_name, settings.top_n)
++            base = base_row_for_dataset(ds, i, run_name)
+ 
+             if dry_run:
+                 rows.append(dry_run_row(base, arguments))
+@@ -216,30 +114,6 @@ class BenchmarkOrchestrator:
+                 continue
+ 
+             assert client is not None
+-
+-            experiment_fp: str | None = None
+-            if skip_identical_runs:
+-                s3_cfg_dedupe = cfg.get("s3")
+-                if isinstance(s3_cfg_dedupe, dict) and s3_cfg_usable(s3_cfg_dedupe):
+-                    experiment_fp = compute_experiment_fingerprint(
+-                        pipeline_ir_path=pipeline_file.resolve(),
+-                        pipeline_arguments=dict(arguments),
+-                        dataset=ds,
+-                        settings=settings,
+-                        cfg=cfg,
+-                        s3_cfg=s3_cfg_dedupe,
+-                        dataset_filter=dataset_filter,
+-                    )
+-                    cached = try_load_cached_result_row(
+-                        s3_cfg=s3_cfg_dedupe,
+-                        bucket=settings.train_data_bucket_name,
+-                        benchmark_s3_prefix=settings.benchmark_s3_prefix,
+-                        fingerprint=experiment_fp,
+-                    )
+-                    if cached is not None:
+-                        rows.append(cached)
+-                        continue
+-
+             try:
+                 run_result = submit_pipeline_package(
+                     client,
+@@ -259,22 +133,7 @@ class BenchmarkOrchestrator:
+                     poll_interval_seconds=settings.poll_interval_seconds,
+                 )
+                 if timed_out:
+-                    tout = timeout_row(base, rid, settings.timeout_seconds)
+-                    rows.append(tout)
+-                    _maybe_upload_benchmark_row(
+-                        cfg=cfg,
+-                        settings=settings,
+-                        batch_id=batch_id,
+-                        ds=ds,
+-                        row=tout,
+-                        pipeline_file=pipeline_file,
+-                        arguments=arguments,
+-                        output_csv=output_csv,
+-                        dataset_filter=dataset_filter,
+-                        fail_fast=fail_fast,
+-                        repo_root=repo_root,
+-                        experiment_fingerprint=experiment_fp,
+-                    )
++                    rows.append(timeout_row(base, rid, settings.timeout_seconds))
+                     logger.error("Timeout waiting for run %s", rid)
+                     if fail_fast:
+                         break
+@@ -282,48 +141,7 @@ class BenchmarkOrchestrator:
+ 
+                 if detail is None:
+                     detail = client.get_run(rid)
+-                row = completed_row(base, rid, detail)
+-                state = str(row.get("state", ""))
+-                if is_success_state(state) and rid.strip():
+-                    s3_cfg = cfg.get("s3")
+-                    if isinstance(s3_cfg, dict) and s3_cfg:
+-                        root = (
+-                            settings.artifact_s3_root_timeseries
+-                            if is_timeseries_dataset(ds)
+-                            else settings.artifact_s3_root_tabular
+-                        )
+-                        row["leaderboard_html_s3_uri"] = discover_leaderboard_html_s3_uri(
+-                            bucket=settings.train_data_bucket_name,
+-                            s3_cfg=s3_cfg,
+-                            run_id=rid,
+-                            is_timeseries=is_timeseries_dataset(ds),
+-                            artifact_root_prefix=root,
+-                        )
+-                        uri = str(row.get("leaderboard_html_s3_uri") or "").strip()
+-                        if uri:
+-                            local_rel = download_leaderboard_html_to_dir(
+-                                s3_cfg,
+-                                uri,
+-                                output_csv.resolve().parent,
+-                                run_id=rid,
+-                            )
+-                            if local_rel:
+-                                row["leaderboard_html_path"] = local_rel
+-                rows.append(row)
+-                _maybe_upload_benchmark_row(
+-                    cfg=cfg,
+-                    settings=settings,
+-                    batch_id=batch_id,
+-                    ds=ds,
+-                    row=row,
+-                    pipeline_file=pipeline_file,
+-                    arguments=arguments,
+-                    output_csv=output_csv,
+-                    dataset_filter=dataset_filter,
+-                    fail_fast=fail_fast,
+-                    repo_root=repo_root,
+-                    experiment_fingerprint=experiment_fp,
+-                )
++                rows.append(completed_row(base, rid, detail))
+ 
+                 state = rows[-1].get("state", "")
+                 if not is_success_state(str(state)) and fail_fast:
+@@ -338,24 +156,4 @@ class BenchmarkOrchestrator:
+ 
+         write_results_csv(rows, output_csv)
+         logger.info("Wrote %d row(s) to %s", len(rows), output_csv)
+-
+-        if not dry_run:
+-            s3_cfg = cfg.get("s3")
+-            if (
+-                settings.upload_benchmark_results
+-                and isinstance(s3_cfg, dict)
+-                and s3_cfg_usable(s3_cfg)
+-            ):
+-                upload_batch_aggregated(
+-                    s3_cfg=s3_cfg,
+-                    bucket=settings.train_data_bucket_name,
+-                    settings=settings,
+-                    cfg=cfg,
+-                    batch_id=batch_id,
+-                    started_at=started_at,
+-                    output_csv=output_csv.resolve(),
+-                    rows=rows,
+-                    dataset_filter=dataset_filter,
+-                    repo_root=repo_root,
+-                )
+         return 0
+diff --git a/automl_benchmark/pipeline_params.py b/automl_benchmark/pipeline_params.py
+index c9e19ab..65ce62c 100644
+--- a/automl_benchmark/pipeline_params.py
++++ b/automl_benchmark/pipeline_params.py
+@@ -1,23 +1,15 @@
+-"""Map dataset manifest entries to pipeline argument dicts."""
++"""Map dataset manifest entries to RAG pipeline argument dicts."""
+ 
+ from __future__ import annotations
+ 
+ from pathlib import Path
+ from typing import Any
+ 
+-from automl_benchmark.settings import BenchmarkSettings
+-
+-
+-def is_timeseries_dataset(dataset: dict[str, Any]) -> bool:
+-    t = dataset.get("task_type")
+-    if t is None:
+-        return False
+-    return str(t).strip().lower() == "timeseries"
++from autorag_benchmark.settings import BenchmarkSettings
+ 
+ 
+ def pipeline_file_for_dataset(dataset: dict[str, Any], settings: BenchmarkSettings) -> Path:
+-    if is_timeseries_dataset(dataset):
+-        return settings.timeseries_pipeline_yaml
++    """Return the RAG pipeline YAML file path."""
+     return settings.pipeline_yaml
+ 
+ 
+@@ -25,45 +17,37 @@ def build_pipeline_arguments(
+     dataset: dict[str, Any],
+     settings: BenchmarkSettings,
+ ) -> dict[str, Any]:
+-    if is_timeseries_dataset(dataset):
+-        return _build_timeseries_arguments(dataset, settings)
+-    return _build_tabular_arguments(dataset, settings)
++    """Build arguments for the RAG optimization pipeline from dataset entry and settings."""
+ 
+-
+-def _build_tabular_arguments(
+-    dataset: dict[str, Any],
+-    settings: BenchmarkSettings,
+-) -> dict[str, Any]:
+-    return {
+-        "train_data_secret_name": settings.train_data_secret_name,
+-        "train_data_bucket_name": settings.train_data_bucket_name,
+-        "train_data_file_key": str(dataset["train_data_file_key"]),
+-        "label_column": str(dataset["label_column"]),
+-        "task_type": str(dataset["task_type"]),
+-        "top_n": settings.top_n,
++    # Required parameters
++    args: dict[str, Any] = {
++        "input_data_bucket_name": settings.input_data_bucket_name,
++        "input_data_secret_name": settings.input_data_secret_name,
++        "test_data_bucket_name": settings.test_data_bucket_name,
++        "test_data_secret_name": settings.test_data_secret_name,
++        "test_data_key": str(dataset["test_data_key"]),
++        "llama_stack_secret_name": settings.llama_stack_secret_name,
++        "llama_stack_vector_io_provider_id": settings.llama_stack_vector_io_provider_id,
+     }
+ 
++    # Optional input_data_key (path to documents)
++    if "input_data_key" in dataset and dataset["input_data_key"]:
++        args["input_data_key"] = str(dataset["input_data_key"])
++
++    # Optional optimization parameters
++    if "optimization_metric" in dataset:
++        args["optimization_metric"] = str(dataset["optimization_metric"])
++    elif hasattr(settings, "optimization_metric") and settings.optimization_metric:
++        args["optimization_metric"] = settings.optimization_metric
++
++    if "optimization_max_rag_patterns" in dataset:
++        args["optimization_max_rag_patterns"] = int(dataset["optimization_max_rag_patterns"])
++    elif hasattr(settings, "optimization_max_rag_patterns") and settings.optimization_max_rag_patterns:
++        args["optimization_max_rag_patterns"] = settings.optimization_max_rag_patterns
++
++    # Optional model lists (embedding, retrieval, generation)
++    for model_type in ["embedding_models", "retrieval_models", "generation_models"]:
++        if model_type in dataset and isinstance(dataset[model_type], list):
++            args[model_type] = dataset[model_type]
+ 
+-def _build_timeseries_arguments(
+-    dataset: dict[str, Any],
+-    settings: BenchmarkSettings,
+-) -> dict[str, Any]:
+-    target = dataset.get("target") or dataset.get("label_column")
+-    if not target:
+-        raise ValueError("timeseries datasets require 'target' or 'label_column'")
+-    args: dict[str, Any] = {
+-        "train_data_secret_name": settings.train_data_secret_name,
+-        "train_data_bucket_name": settings.train_data_bucket_name,
+-        "train_data_file_key": str(dataset["train_data_file_key"]),
+-        "target": str(target),
+-        "id_column": str(dataset["id_column"]),
+-        "timestamp_column": str(dataset["timestamp_column"]),
+-        "top_n": settings.top_n,
+-    }
+-    kc = dataset.get("known_covariates_names")
+-    if isinstance(kc, list) and kc:
+-        args["known_covariates_names"] = [str(x) for x in kc]
+-    pl = dataset.get("prediction_length")
+-    if pl is not None and str(pl).strip() != "":
+-        args["prediction_length"] = int(pl)
+     return args
+diff --git a/automl_benchmark/pipeline_run.py b/automl_benchmark/pipeline_run.py
+index df2c163..f20c55c 100644
+--- a/automl_benchmark/pipeline_run.py
++++ b/automl_benchmark/pipeline_run.py
+@@ -5,7 +5,7 @@ from __future__ import annotations
+ import time
+ from typing import Any
+ 
+-from automl_benchmark.run_state import is_terminal_state, read_run_state, unwrap_run_from_get_run
++from autorag_benchmark.run_state import is_terminal_state, read_run_state, unwrap_run_from_get_run
+ 
+ 
+ def submit_pipeline_package(
+@@ -48,9 +48,32 @@ def wait_for_terminal_run(
+     timeout_seconds: float,
+     poll_interval_seconds: float,
+ ) -> tuple[Any | None, bool]:
++    import subprocess
++    import os
++
+     deadline = time.monotonic() + timeout_seconds
+     detail = None
++    last_token_refresh = time.monotonic()
++    TOKEN_REFRESH_INTERVAL = 1800  # Refresh token every 30 minutes
++
+     while time.monotonic() < deadline:
++        # Auto-refresh token if using OpenShift CLI
++        if time.monotonic() - last_token_refresh > TOKEN_REFRESH_INTERVAL:
++            try:
++                # Try to get fresh token from oc CLI
++                result = subprocess.run(['oc', 'whoami', '-t'],
++                                      capture_output=True, text=True, timeout=5)
++                if result.returncode == 0:
++                    fresh_token = result.stdout.strip()
++                    if fresh_token:
++                        # Update client's token
++                        if hasattr(client, '_config') and hasattr(client._config, 'api_key'):
++                            client._config.api_key['authorization'] = f'Bearer {fresh_token}'
++                        last_token_refresh = time.monotonic()
++            except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
++                # If oc CLI not available or fails, continue with existing token
++                pass
++
+         detail = client.get_run(run_id)
+         run_obj = unwrap_run_from_get_run(detail)
+         st = read_run_state(run_obj).upper()
+diff --git a/automl_benchmark/result_rows.py b/automl_benchmark/result_rows.py
+index 04bc2e5..6140083 100644
+--- a/automl_benchmark/result_rows.py
++++ b/automl_benchmark/result_rows.py
+@@ -6,27 +6,25 @@ import json
+ from datetime import datetime, timezone
+ from typing import Any
+ 
+-from automl_benchmark.metrics_extraction import extract_metrics_blob
+-from automl_benchmark.run_state import read_run_state, unwrap_run_from_get_run
+-from automl_benchmark.run_timing import duration_seconds, parse_timestamp
++from autorag_benchmark.metrics_extraction import extract_metrics_blob
++from autorag_benchmark.run_state import read_run_state, unwrap_run_from_get_run
++from autorag_benchmark.run_timing import duration_seconds, parse_timestamp
+ 
+ 
+ def base_row_for_dataset(
+     dataset: dict[str, Any],
+     dataset_index: int,
+     run_name: str,
+-    top_n: int,
+ ) -> dict[str, Any]:
+     ds_id = str(dataset.get("id", dataset.get("name", f"dataset_{dataset_index}")))
+     name = str(dataset.get("name", ds_id))
+     return {
+         "dataset_id": ds_id,
+         "dataset_name": name,
+-        "task_type": dataset.get("task_type"),
+-        "label_column": dataset.get("label_column"),
+-        "train_data_file_key": dataset.get("train_data_file_key"),
++        "input_data_key": dataset.get("input_data_key", ""),
++        "test_data_key": dataset.get("test_data_key", ""),
++        "optimization_metric": dataset.get("optimization_metric", ""),
+         "run_name": run_name,
+-        "top_n": top_n,
+     }
+ 
+ 
+@@ -40,8 +38,6 @@ def dry_run_row(base: dict[str, Any], arguments: dict[str, Any]) -> dict[str, An
+         "duration_seconds": "",
+         "error": "",
+         "metrics_blob": json.dumps(arguments),
+-        "leaderboard_html_s3_uri": "",
+-        "leaderboard_html_path": "",
+     }
+ 
+ 
+@@ -55,8 +51,6 @@ def timeout_row(base: dict[str, Any], run_id: str, timeout_seconds: float) -> di
+         "duration_seconds": str(timeout_seconds),
+         "error": "wait timeout",
+         "metrics_blob": "",
+-        "leaderboard_html_s3_uri": "",
+-        "leaderboard_html_path": "",
+     }
+ 
+ 
+@@ -81,8 +75,6 @@ def completed_row(base: dict[str, Any], run_id: str, run_detail: Any) -> dict[st
+         "duration_seconds": duration_seconds(created, finished),
+         "error": err,
+         "metrics_blob": extract_metrics_blob(run_detail),
+-        "leaderboard_html_s3_uri": "",
+-        "leaderboard_html_path": "",
+     }
+ 
+ 
+@@ -96,8 +88,6 @@ def submit_error_row(base: dict[str, Any], message: str) -> dict[str, Any]:
+         "duration_seconds": "",
+         "error": message,
+         "metrics_blob": "",
+-        "leaderboard_html_s3_uri": "",
+-        "leaderboard_html_path": "",
+     }
+ 
+ 
+diff --git a/automl_benchmark/settings.py b/automl_benchmark/settings.py
+index bbd9a2c..9880aa1 100644
+--- a/automl_benchmark/settings.py
++++ b/automl_benchmark/settings.py
+@@ -6,35 +6,26 @@ from dataclasses import dataclass
+ from pathlib import Path
+ from typing import Any
+ 
+-from automl_benchmark.paths import resolve_under
+-
+-
+-def _artifact_root_from_storage(storage_cfg: dict[str, Any], key: str, default: str) -> str:
+-    """Strip slashes; empty string allowed when the key is set explicitly in config."""
+-    if key not in storage_cfg:
+-        return default.strip().strip("/")
+-    return str(storage_cfg.get(key) or "").strip().strip("/")
++from autorag_benchmark.paths import resolve_under
+ 
+ 
+ @dataclass(frozen=True)
+ class BenchmarkSettings:
+-    """artifact_s3_root_*: first path segment under the bucket for KFP artifacts (pipeline template name)."""
+-
+     config_dir: Path
+     pipeline_yaml: Path
+-    timeseries_pipeline_yaml: Path
+-    train_data_secret_name: str
+-    train_data_bucket_name: str
+-    artifact_s3_root_tabular: str
+-    artifact_s3_root_timeseries: str
+-    top_n: int
++    input_data_secret_name: str
++    input_data_bucket_name: str
++    test_data_secret_name: str
++    test_data_bucket_name: str
++    llama_stack_secret_name: str
++    llama_stack_vector_io_provider_id: str
++    optimization_metric: str
++    optimization_max_rag_patterns: int
+     poll_interval_seconds: float
+     timeout_seconds: float
+     enable_caching: bool
+     experiment_name: str
+     run_name_prefix: str
+-    benchmark_s3_prefix: str
+-    upload_benchmark_results: bool
+ 
+ 
+ def benchmark_settings_from_config(cfg: dict[str, Any], config_dir: Path) -> BenchmarkSettings:
+@@ -43,53 +34,41 @@ def benchmark_settings_from_config(cfg: dict[str, Any], config_dir: Path) -> Ben
+     run_cfg = cfg.get("run") or {}
+     kfp_cfg = cfg.get("kfp") or {}
+ 
+-    pipeline_yaml = resolve_under(config_dir, str(pipeline_cfg.get("package_path", "../pipelines/autogluon-tabular-training-pipeline.yaml")))
+-    timeseries_pipeline_yaml = resolve_under(
++    pipeline_yaml = resolve_under(
+         config_dir,
+-        str(pipeline_cfg.get("timeseries_package_path", "../pipelines/autogluon-timeseries-training-pipeline.yaml")),
++        str(pipeline_cfg.get("package_path", "../pipelines/documents-rag-optimization-pipeline.yaml"))
+     )
+-    secret = pipeline_cfg.get("train_data_secret_name")
+-    bucket = storage_cfg.get("train_data_bucket_name")
+-    if not secret or not bucket:
+-        raise ValueError(
+-            "pipeline.train_data_secret_name and storage.train_data_bucket_name are required "
+-            "(set in credentials.ini only, not in benchmark.yaml)"
+-        )
+ 
+-    tab_root = _artifact_root_from_storage(
+-        storage_cfg,
+-        "artifact_s3_prefix",
+-        "autogluon-tabular-training-pipeline",
+-    )
+-    ts_root = _artifact_root_from_storage(
+-        storage_cfg,
+-        "timeseries_artifact_s3_prefix",
+-        "autogluon-timeseries-training-pipeline",
+-    )
++    # Required secrets and buckets
++    input_data_secret = pipeline_cfg.get("input_data_secret_name")
++    input_data_bucket = storage_cfg.get("input_data_bucket_name")
++    test_data_secret = pipeline_cfg.get("test_data_secret_name")
++    test_data_bucket = storage_cfg.get("test_data_bucket_name")
++    llama_stack_secret = pipeline_cfg.get("llama_stack_secret_name")
++    llama_stack_provider = pipeline_cfg.get("llama_stack_vector_io_provider_id")
+ 
+-    bench_prefix = str(storage_cfg.get("benchmark_s3_prefix") or "benchmarks").strip().strip("/")
+-    upload_raw = storage_cfg.get("upload_benchmark_results")
+-    if upload_raw is None:
+-        upload_benchmark_results = True
+-    elif isinstance(upload_raw, bool):
+-        upload_benchmark_results = upload_raw
+-    else:
+-        upload_benchmark_results = str(upload_raw).strip().lower() in ("1", "true", "yes", "on")
++    if not all([input_data_secret, input_data_bucket, test_data_secret, test_data_bucket, llama_stack_secret, llama_stack_provider]):
++        raise ValueError(
++            "Required configuration missing. Please set in credentials.ini: "
++            "pipeline.input_data_secret_name, pipeline.test_data_secret_name, "
++            "pipeline.llama_stack_secret_name, pipeline.llama_stack_vector_io_provider_id, "
++            "storage.input_data_bucket_name, storage.test_data_bucket_name"
++        )
+ 
+     return BenchmarkSettings(
+         config_dir=config_dir,
+         pipeline_yaml=pipeline_yaml,
+-        timeseries_pipeline_yaml=timeseries_pipeline_yaml,
+-        train_data_secret_name=str(secret),
+-        train_data_bucket_name=str(bucket),
+-        artifact_s3_root_tabular=tab_root,
+-        artifact_s3_root_timeseries=ts_root,
+-        top_n=int(run_cfg.get("top_n", 3)),
++        input_data_secret_name=str(input_data_secret),
++        input_data_bucket_name=str(input_data_bucket),
++        test_data_secret_name=str(test_data_secret),
++        test_data_bucket_name=str(test_data_bucket),
++        llama_stack_secret_name=str(llama_stack_secret),
++        llama_stack_vector_io_provider_id=str(llama_stack_provider),
++        optimization_metric=str(run_cfg.get("optimization_metric", "faithfulness")),
++        optimization_max_rag_patterns=int(run_cfg.get("optimization_max_rag_patterns", 8)),
+         poll_interval_seconds=float(run_cfg.get("poll_interval_seconds", 30)),
+         timeout_seconds=float(run_cfg.get("timeout_seconds", 86400)),
+         enable_caching=bool(run_cfg.get("enable_caching", False)),
+-        experiment_name=str(kfp_cfg.get("experiment_name", "autogluon-benchmark")),
+-        run_name_prefix=str(run_cfg.get("run_name_prefix", "benchmark")),
+-        benchmark_s3_prefix=bench_prefix,
+-        upload_benchmark_results=upload_benchmark_results,
++        experiment_name=str(kfp_cfg.get("experiment_name", "rag-optimization-benchmark")),
++        run_name_prefix=str(run_cfg.get("run_name_prefix", "rag-benchmark")),
+     )
+diff --git a/scripts/benchmark_orchestrator.py b/scripts/benchmark_orchestrator.py
+index 16f1c0d..c0785f4 100644
+--- a/scripts/benchmark_orchestrator.py
++++ b/scripts/benchmark_orchestrator.py
+@@ -1,18 +1,15 @@
+ #!/usr/bin/env python3
+ """
+-Submit AutoGluon KFP pipeline runs (tabular and/or time series) for each dataset in a
+-manifest, wait for completion, and write a single CSV summary. Successful runs with S3
+-credentials also write ``leaderboards/<run_id>.html`` next to the CSV when the leaderboard
+-object is found.
++Submit RAG optimization KFP pipeline runs for each use case in a manifest,
++wait for completion, and write a single CSV summary.
+ 
+-Implementation lives in the ``automl_benchmark`` package; this file is a thin CLI wrapper.
++Implementation lives in the ``autorag_benchmark`` package; this file is a thin CLI wrapper.
+ 
+ Configuration:
+-  - YAML ($BENCHMARK_CONFIG_PATH / config/benchmark.yaml): ``pipeline.package_path`` (tabular IR),
+-    ``pipeline.timeseries_package_path`` (``task_type: timeseries`` rows), run tuning, manifest.
+-  - credentials.ini (required): kfp host/namespace/token, bucket, pipeline secret name, [s3] for
+-    leaderboard discovery, uploads, and experiment dedupe (skip identical runs by default;
+-    use ``--rerun-identical-experiments`` to force new pipelines).
++  - YAML ($BENCHMARK_CONFIG_PATH / config/benchmark.yaml): ``pipeline.package_path`` (RAG optimization IR),
++    optimization settings (metric, max patterns), run tuning, manifest.
++  - credentials.ini (required): kfp host/namespace/token, buckets (input/test), pipeline secrets,
++    llama-stack credentials, [s3] for your records.
+     Use config/credentials.ini, $BENCHMARK_CREDENTIALS_PATH, or ``--credentials PATH``.
+ 
+ Usage:

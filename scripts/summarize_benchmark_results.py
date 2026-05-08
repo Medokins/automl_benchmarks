@@ -65,8 +65,8 @@ def main() -> int:
     args = parser.parse_args()
 
     from automl_benchmark.benchmark_summary import records_to_summary_rows
-    from automl_benchmark.ini_credentials import load_credentials_ini
-    from automl_benchmark.kfp_client import create_kfp_client
+    from benchmark_common.ini_credentials import load_credentials_ini
+    from benchmark_common.kfp_client import create_kfp_client
 
     inp = args.input_csv.resolve()
     if not inp.is_file():

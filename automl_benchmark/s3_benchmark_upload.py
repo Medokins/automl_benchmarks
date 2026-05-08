@@ -16,7 +16,7 @@ from automl_benchmark.benchmark_run_metadata import (
     dataset_results_subpath,
 )
 from automl_benchmark.experiment_fingerprint import compute_experiment_fingerprint
-from automl_benchmark.run_state import is_success_state
+from benchmark_common.run_state import is_success_state
 from automl_benchmark.s3_client import make_s3_client, s3_cfg_usable
 from automl_benchmark.s3_experiment_dedupe import write_experiment_index
 from automl_benchmark.settings import BenchmarkSettings

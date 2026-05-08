@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import subprocess
 import time
 from typing import Any
 
-from automl_benchmark.run_state import is_terminal_state, read_run_state, unwrap_run_from_get_run
+from benchmark_common.run_state import is_terminal_state, read_run_state, unwrap_run_from_get_run
 
 
 def submit_pipeline_package(
@@ -50,7 +51,27 @@ def wait_for_terminal_run(
 ) -> tuple[Any | None, bool]:
     deadline = time.monotonic() + timeout_seconds
     detail = None
+    last_token_refresh = time.monotonic()
+    token_refresh_interval = 1800.0
+
     while time.monotonic() < deadline:
+        if time.monotonic() - last_token_refresh > token_refresh_interval:
+            try:
+                result = subprocess.run(
+                    ["oc", "whoami", "-t"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                    check=False,
+                )
+                if result.returncode == 0:
+                    fresh_token = result.stdout.strip()
+                    if fresh_token and hasattr(client, "_config") and hasattr(client._config, "api_key"):
+                        client._config.api_key["authorization"] = f"Bearer {fresh_token}"
+                        last_token_refresh = time.monotonic()
+            except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+                pass
+
         detail = client.get_run(run_id)
         run_obj = unwrap_run_from_get_run(detail)
         st = read_run_state(run_obj).upper()

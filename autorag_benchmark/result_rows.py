@@ -1,4 +1,4 @@
-"""Normalized result rows written to the benchmark CSV."""
+"""CSV row builders for AutoRAG benchmark runs."""
 
 from __future__ import annotations
 
@@ -15,18 +15,16 @@ def base_row_for_dataset(
     dataset: dict[str, Any],
     dataset_index: int,
     run_name: str,
-    top_n: int,
 ) -> dict[str, Any]:
     ds_id = str(dataset.get("id", dataset.get("name", f"dataset_{dataset_index}")))
     name = str(dataset.get("name", ds_id))
     return {
         "dataset_id": ds_id,
         "dataset_name": name,
-        "task_type": dataset.get("task_type"),
-        "label_column": dataset.get("label_column"),
-        "train_data_file_key": dataset.get("train_data_file_key"),
+        "input_data_key": dataset.get("input_data_key", ""),
+        "test_data_key": dataset.get("test_data_key", ""),
+        "optimization_metric": dataset.get("optimization_metric", ""),
         "run_name": run_name,
-        "top_n": top_n,
     }
 
 
@@ -40,8 +38,6 @@ def dry_run_row(base: dict[str, Any], arguments: dict[str, Any]) -> dict[str, An
         "duration_seconds": "",
         "error": "",
         "metrics_blob": json.dumps(arguments),
-        "leaderboard_html_s3_uri": "",
-        "leaderboard_html_path": "",
     }
 
 
@@ -55,8 +51,6 @@ def timeout_row(base: dict[str, Any], run_id: str, timeout_seconds: float) -> di
         "duration_seconds": str(timeout_seconds),
         "error": "wait timeout",
         "metrics_blob": "",
-        "leaderboard_html_s3_uri": "",
-        "leaderboard_html_path": "",
     }
 
 
@@ -81,8 +75,6 @@ def completed_row(base: dict[str, Any], run_id: str, run_detail: Any) -> dict[st
         "duration_seconds": duration_seconds(created, finished),
         "error": err,
         "metrics_blob": extract_metrics_blob(run_detail),
-        "leaderboard_html_s3_uri": "",
-        "leaderboard_html_path": "",
     }
 
 
@@ -96,10 +88,9 @@ def submit_error_row(base: dict[str, Any], message: str) -> dict[str, Any]:
         "duration_seconds": "",
         "error": message,
         "metrics_blob": "",
-        "leaderboard_html_s3_uri": "",
-        "leaderboard_html_path": "",
     }
 
 
 def run_name_for_dataset(prefix: str, dataset_id: str) -> str:
-    return f"{prefix}-{dataset_id}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"
+    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in dataset_id)
+    return f"{prefix}-{safe}-{datetime.now(timezone.utc).strftime('%Y%m%d%H%M%S')}"

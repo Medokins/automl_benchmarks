@@ -6,8 +6,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from automl_benchmark.merge import deep_merge
-from automl_benchmark.yaml_io import load_yaml_dict
+from benchmark_common.merge import deep_merge
+from benchmark_common.yaml_io import load_yaml_dict
 
 logger = logging.getLogger(__name__)
 
