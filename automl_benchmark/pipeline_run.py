@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from automl_benchmark.run_state import is_terminal_state, read_run_state, unwrap_run_from_get_run
+from autorag_benchmark.run_state import is_terminal_state, read_run_state, unwrap_run_from_get_run
 
 
 def submit_pipeline_package(
@@ -48,9 +48,32 @@ def wait_for_terminal_run(
     timeout_seconds: float,
     poll_interval_seconds: float,
 ) -> tuple[Any | None, bool]:
+    import subprocess
+    import os
+
     deadline = time.monotonic() + timeout_seconds
     detail = None
+    last_token_refresh = time.monotonic()
+    TOKEN_REFRESH_INTERVAL = 1800  # Refresh token every 30 minutes
+
     while time.monotonic() < deadline:
+        # Auto-refresh token if using OpenShift CLI
+        if time.monotonic() - last_token_refresh > TOKEN_REFRESH_INTERVAL:
+            try:
+                # Try to get fresh token from oc CLI
+                result = subprocess.run(['oc', 'whoami', '-t'],
+                                      capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    fresh_token = result.stdout.strip()
+                    if fresh_token:
+                        # Update client's token
+                        if hasattr(client, '_config') and hasattr(client._config, 'api_key'):
+                            client._config.api_key['authorization'] = f'Bearer {fresh_token}'
+                        last_token_refresh = time.monotonic()
+            except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+                # If oc CLI not available or fails, continue with existing token
+                pass
+
         detail = client.get_run(run_id)
         run_obj = unwrap_run_from_get_run(detail)
         st = read_run_state(run_obj).upper()

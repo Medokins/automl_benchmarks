@@ -1,23 +1,15 @@
-"""Map dataset manifest entries to pipeline argument dicts."""
+"""Map dataset manifest entries to RAG pipeline argument dicts."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
-from automl_benchmark.settings import BenchmarkSettings
-
-
-def is_timeseries_dataset(dataset: dict[str, Any]) -> bool:
-    t = dataset.get("task_type")
-    if t is None:
-        return False
-    return str(t).strip().lower() == "timeseries"
+from autorag_benchmark.settings import BenchmarkSettings
 
 
 def pipeline_file_for_dataset(dataset: dict[str, Any], settings: BenchmarkSettings) -> Path:
-    if is_timeseries_dataset(dataset):
-        return settings.timeseries_pipeline_yaml
+    """Return the RAG pipeline YAML file path."""
     return settings.pipeline_yaml
 
 
@@ -25,45 +17,37 @@ def build_pipeline_arguments(
     dataset: dict[str, Any],
     settings: BenchmarkSettings,
 ) -> dict[str, Any]:
-    if is_timeseries_dataset(dataset):
-        return _build_timeseries_arguments(dataset, settings)
-    return _build_tabular_arguments(dataset, settings)
+    """Build arguments for the RAG optimization pipeline from dataset entry and settings."""
 
-
-def _build_tabular_arguments(
-    dataset: dict[str, Any],
-    settings: BenchmarkSettings,
-) -> dict[str, Any]:
-    return {
-        "train_data_secret_name": settings.train_data_secret_name,
-        "train_data_bucket_name": settings.train_data_bucket_name,
-        "train_data_file_key": str(dataset["train_data_file_key"]),
-        "label_column": str(dataset["label_column"]),
-        "task_type": str(dataset["task_type"]),
-        "top_n": settings.top_n,
-    }
-
-
-def _build_timeseries_arguments(
-    dataset: dict[str, Any],
-    settings: BenchmarkSettings,
-) -> dict[str, Any]:
-    target = dataset.get("target") or dataset.get("label_column")
-    if not target:
-        raise ValueError("timeseries datasets require 'target' or 'label_column'")
+    # Required parameters
     args: dict[str, Any] = {
-        "train_data_secret_name": settings.train_data_secret_name,
-        "train_data_bucket_name": settings.train_data_bucket_name,
-        "train_data_file_key": str(dataset["train_data_file_key"]),
-        "target": str(target),
-        "id_column": str(dataset["id_column"]),
-        "timestamp_column": str(dataset["timestamp_column"]),
-        "top_n": settings.top_n,
+        "input_data_bucket_name": settings.input_data_bucket_name,
+        "input_data_secret_name": settings.input_data_secret_name,
+        "test_data_bucket_name": settings.test_data_bucket_name,
+        "test_data_secret_name": settings.test_data_secret_name,
+        "test_data_key": str(dataset["test_data_key"]),
+        "llama_stack_secret_name": settings.llama_stack_secret_name,
+        "llama_stack_vector_io_provider_id": settings.llama_stack_vector_io_provider_id,
     }
-    kc = dataset.get("known_covariates_names")
-    if isinstance(kc, list) and kc:
-        args["known_covariates_names"] = [str(x) for x in kc]
-    pl = dataset.get("prediction_length")
-    if pl is not None and str(pl).strip() != "":
-        args["prediction_length"] = int(pl)
+
+    # Optional input_data_key (path to documents)
+    if "input_data_key" in dataset and dataset["input_data_key"]:
+        args["input_data_key"] = str(dataset["input_data_key"])
+
+    # Optional optimization parameters
+    if "optimization_metric" in dataset:
+        args["optimization_metric"] = str(dataset["optimization_metric"])
+    elif hasattr(settings, "optimization_metric") and settings.optimization_metric:
+        args["optimization_metric"] = settings.optimization_metric
+
+    if "optimization_max_rag_patterns" in dataset:
+        args["optimization_max_rag_patterns"] = int(dataset["optimization_max_rag_patterns"])
+    elif hasattr(settings, "optimization_max_rag_patterns") and settings.optimization_max_rag_patterns:
+        args["optimization_max_rag_patterns"] = settings.optimization_max_rag_patterns
+
+    # Optional model lists (embedding, retrieval, generation)
+    for model_type in ["embedding_models", "retrieval_models", "generation_models"]:
+        if model_type in dataset and isinstance(dataset[model_type], list):
+            args[model_type] = dataset[model_type]
+
     return args

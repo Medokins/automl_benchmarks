@@ -6,7 +6,7 @@ import json
 from enum import Enum
 from typing import Any
 
-from automl_benchmark.run_state import unwrap_run_from_get_run
+from autorag_benchmark.run_state import unwrap_run_from_get_run
 
 
 def _to_jsonable(value: Any) -> Any:
